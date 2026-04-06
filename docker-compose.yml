@@ -1,0 +1,53 @@
+# Run from this folder: docker compose up --build
+# Backend Dockerfile is here; frontend image is built from ../farfartaxi-web
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/farfartaxi
+      SPRING_DATASOURCE_USERNAME: taxi_mgmt
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-replace-this-in-production-with-a-long-secret-value}
+      FARFARTAXI_ADMIN_EMAIL: ${FARFARTAXI_ADMIN_EMAIL:-admin@farfartaxi.local}
+      FARFARTAXI_ADMIN_PASSWORD: ${FARFARTAXI_ADMIN_PASSWORD:-ChangeMeNow123!}
+      FARFARTAXI_ADMIN_NAME: ${FARFARTAXI_ADMIN_NAME:-Farfar Admin}
+      APP_ETA_DEFAULT_KMH: ${APP_ETA_DEFAULT_KMH:-35}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../farfartaxi-web
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: farfartaxi
+      POSTGRES_USER: taxi_mgmt
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxi_mgmt -d farfartaxi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - farfartaxi_pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  farfartaxi_pg_data:

@@ -1,0 +1,69 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "mvn: compile",
+      "type": "shell",
+      "command": "./mvnw -q -DskipTests compile dependency:copy-dependencies",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": "mvnw.cmd -q -DskipTests compile dependency:copy-dependencies",
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "shell": {
+            "executable": "cmd.exe",
+            "args": ["/d", "/c"]
+          }
+        }
+      },
+      "problemMatcher": "$javac",
+      "group": "build"
+    },
+    {
+      "label": "Backend: compile",
+      "type": "shell",
+      "command": "./mvnw -q -DskipTests compile",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": "mvnw.cmd -q -DskipTests compile",
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "shell": {
+            "executable": "cmd.exe",
+            "args": ["/d", "/c"]
+          }
+        }
+      },
+      "problemMatcher": "$javac",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Backend: spring-boot run (terminal)",
+      "type": "shell",
+      "command": "./mvnw spring-boot:run",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "envFile": "${workspaceFolder}/.env"
+      },
+      "windows": {
+        "command": "mvnw.cmd spring-boot:run",
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "envFile": "${workspaceFolder}/.env",
+          "shell": {
+            "executable": "cmd.exe",
+            "args": ["/d", "/c"]
+          }
+        }
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Spring Boot - Dev",
+      "request": "launch",
+      "mainClass": "com.farfartaxi.backend.BackendApplication",
+      "classPaths": [
+        "${workspaceFolder}/target/classes",
+        "${workspaceFolder}/target/dependency/*"
+      ],
+      "modulePaths": [],
+      "args": "--spring.profiles.active=dev",
+      "vmArgs": "-Dspring.profiles.active=dev",
+      "env": {
+        "SPRING_PROFILES_ACTIVE": "dev"
+      },
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "mvn: compile",
+      "shortenCommandLine": "auto"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Start both (backend + frontend)",
+      "configurations": ["Spring Boot - Dev", "Frontend: Vite dev"],
+      "stopAll": true
+    }
+  ]
+}
