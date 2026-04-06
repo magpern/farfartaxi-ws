@@ -114,8 +114,12 @@ public class RideService {
         UserEntity driver = currentUserService.requireUser();
         requireRole(driver, Role.DRIVER);
         RideEntity ride = mustFindRide(rideId);
+        if (ride.getStatus() != RideStatus.PENDING_OPEN) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Ride cannot be refused now");
+        }
         ride.setRefusalDriver(driver);
         ride.setRefusalComment(request.comment());
+        ride.setStatus(RideStatus.REJECTED);
         return toResponse(rideRepository.save(ride));
     }
 
@@ -273,6 +277,20 @@ public class RideService {
     public void adminDeleteRide(Long rideId) {
         currentUserService.requireUser();
         rideRepository.deleteById(rideId);
+    }
+
+    /** Passenger removes a cancelled or driver-rejected ride from their history. */
+    @Transactional
+    public void deleteMyRide(Long rideId) {
+        UserEntity user = currentUserService.requireUser();
+        RideEntity ride = mustFindRide(rideId);
+        if (!ride.getPassenger().getId().equals(user.getId())) {
+            throw new AppException(HttpStatus.FORBIDDEN, "Not your ride");
+        }
+        if (ride.getStatus() != RideStatus.CANCELLED && ride.getStatus() != RideStatus.REJECTED) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Ride cannot be deleted");
+        }
+        rideRepository.delete(ride);
     }
 
     public RideEntity mustFindRide(Long rideId) {

@@ -55,6 +55,11 @@ public class RideController {
         return rideService.cancelRide(rideId, reason);
     }
 
+    @DeleteMapping("/{rideId}")
+    public void deleteMyRide(@PathVariable Long rideId) {
+        rideService.deleteMyRide(rideId);
+    }
+
     @PostMapping("/{rideId}/share")
     public ShareLinkResponse share(@PathVariable Long rideId, jakarta.servlet.http.HttpServletRequest request) {
         String base = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();

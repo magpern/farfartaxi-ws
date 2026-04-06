@@ -5,5 +5,7 @@ public enum RideStatus {
     ACCEPTED,
     IN_PROGRESS,
     COMPLETED,
-    CANCELLED
+    CANCELLED,
+    /** Driver declined the open ride; passenger may remove from their list. */
+    REJECTED
 }

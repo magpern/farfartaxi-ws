@@ -5,6 +5,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -71,6 +73,53 @@ class RideFlowIntegrationTest {
         postWithAuth("/api/rides/" + rideId + "/feedback", userToken, Map.of("stars", 5, "comment", "Great ride"), 200);
     }
 
+    @Test
+    void passengerCanDeleteCancelledOrRejectedRides() throws Exception {
+        register("passenger-del@test.local", "Password123!", "Passenger Del");
+        register("driver-del@test.local", "Password123!", "Driver Del");
+
+        String adminToken = login("admin@test.local", "Admin123!Test");
+        Long driverId = getUserIdByEmail(adminToken, "driver-del@test.local");
+        postWithAuth("/api/admin/users/" + driverId + "/promote-driver", adminToken, null, 200);
+
+        String userToken = login("passenger-del@test.local", "Password123!");
+        String driverToken = login("driver-del@test.local", "Password123!");
+
+        JsonNode rejectedBooked = postWithAuth("/api/rides", userToken, Map.of(
+            "fromAddress", "A",
+            "fromLat", 59.3293,
+            "fromLon", 18.0686,
+            "toAddress", "B",
+            "toLat", 59.3340,
+            "toLon", 18.0700,
+            "scheduledAt", "2031-06-01T12:00:00Z"
+        ), 200);
+        long rejectedRideId = rejectedBooked.get("id").asLong();
+
+        JsonNode refused = postWithAuth("/api/driver/rides/" + rejectedRideId + "/refuse", driverToken, Map.of("comment", "busy"), 200);
+        assertThat(refused.get("status").asText()).isEqualTo("REJECTED");
+
+        deleteWithAuth("/api/rides/" + rejectedRideId, userToken, 200);
+        assertThat(listMyRideIds(userToken, false)).doesNotContain(rejectedRideId);
+
+        JsonNode cancelledBooked = postWithAuth("/api/rides", userToken, Map.of(
+            "fromAddress", "C",
+            "fromLat", 59.3293,
+            "fromLon", 18.0686,
+            "toAddress", "D",
+            "toLat", 59.3340,
+            "toLon", 18.0700,
+            "scheduledAt", "2031-06-02T12:00:00Z"
+        ), 200);
+        long cancelledRideId = cancelledBooked.get("id").asLong();
+
+        JsonNode cancelled = postWithAuth("/api/rides/" + cancelledRideId + "/cancel", userToken, Map.of("reason", "changed plans"), 200);
+        assertThat(cancelled.get("status").asText()).isEqualTo("CANCELLED");
+
+        deleteWithAuth("/api/rides/" + cancelledRideId, userToken, 200);
+        assertThat(listMyRideIds(userToken, false)).doesNotContain(cancelledRideId);
+    }
+
     private void register(String email, String password, String fullName) throws Exception {
         postJson("/api/auth/register", null, Map.of(
             "email", email,
@@ -129,5 +178,32 @@ class RideFlowIntegrationTest {
 
     private String baseUrl() {
         return "http://localhost:" + port;
+    }
+
+    private void deleteWithAuth(String path, String token, int expectedStatus) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(baseUrl() + path))
+            .header("Authorization", "Bearer " + token)
+            .DELETE()
+            .build();
+        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(expectedStatus);
+    }
+
+    private List<Long> listMyRideIds(String userToken, boolean history) throws Exception {
+        String q = history ? "history=true" : "history=false";
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(baseUrl() + "/api/rides/my?" + q))
+            .header("Authorization", "Bearer " + userToken)
+            .GET()
+            .build();
+        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode arr = objectMapper.readTree(response.body());
+        List<Long> ids = new ArrayList<>();
+        for (JsonNode n : arr) {
+            ids.add(n.get("id").asLong());
+        }
+        return ids;
     }
 }
