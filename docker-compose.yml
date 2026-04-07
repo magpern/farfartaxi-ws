@@ -2,6 +2,7 @@
 # Backend Dockerfile is here; frontend image is built from ../farfartaxi-web
 services:
   backend:
+    container_name: farfartaxi-backend
     build:
       context: .
       dockerfile: Dockerfile
@@ -20,12 +21,14 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
-      - "8080:8080"
+      # Host port only; nginx still talks to backend:8080 on the Docker network (no frontend change).
+      - "${BACKEND_HOST_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
 
   frontend:
+    container_name: farfartaxi-frontend
     build:
       context: ../farfartaxi-web
       dockerfile: Dockerfile
@@ -35,6 +38,7 @@ services:
       - "3000:80"
 
   postgres:
+    container_name: farfartaxi-postgres
     image: postgres:17
     environment:
       POSTGRES_DB: farfartaxi

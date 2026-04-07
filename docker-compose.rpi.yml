@@ -7,6 +7,7 @@
 
 services:
   backend:
+    container_name: farfartaxi-backend
     image: ghcr.io/${GHCR_OWNER}/farfartaxi-backend:latest
     pull_policy: always
     restart: unless-stopped
@@ -25,21 +26,23 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
-      - "8080:8080"
+      - "${BACKEND_HOST_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
 
   frontend:
+    container_name: farfartaxi-frontend
     image: ghcr.io/${GHCR_OWNER}/farfartaxi-frontend:latest
     pull_policy: always
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "3000:80"
+      - "5124:80"
 
   postgres:
+    container_name: farfartaxi-postgres
     image: postgres:17
     restart: unless-stopped
     environment:
@@ -51,6 +54,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    ports:
+      - "${POSTGRESS_PORT:-5433}:5432"
     volumes:
       - farfartaxi_pg_data:/var/lib/postgresql/data
 
