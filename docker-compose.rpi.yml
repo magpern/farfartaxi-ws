@@ -1,0 +1,58 @@
+# Raspberry Pi 5 / ARM64 (or any host): pull multi-arch images from GHCR built by release-docker workflow.
+# Prerequisites: docker compose plugin, .env with GHCR_OWNER (lowercase GitHub user/org) and secrets.
+# Authenticate to GHCR if images are private: docker login ghcr.io -u USERNAME
+#
+# Run from this directory:
+#   docker compose -f docker-compose.rpi.yml pull && docker compose -f docker-compose.rpi.yml up -d
+
+services:
+  backend:
+    image: ghcr.io/${GHCR_OWNER}/farfartaxi-backend:latest
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/farfartaxi
+      SPRING_DATASOURCE_USERNAME: taxi_mgmt
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-replace-this-in-production-with-a-long-secret-value}
+      FARFARTAXI_ADMIN_EMAIL: ${FARFARTAXI_ADMIN_EMAIL:-admin@farfartaxi.local}
+      FARFARTAXI_ADMIN_PASSWORD: ${FARFARTAXI_ADMIN_PASSWORD:-ChangeMeNow123!}
+      FARFARTAXI_ADMIN_NAME: ${FARFARTAXI_ADMIN_NAME:-Farfar Admin}
+      APP_ETA_DEFAULT_KMH: ${APP_ETA_DEFAULT_KMH:-35}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/farfartaxi-frontend:latest
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farfartaxi
+      POSTGRES_USER: taxi_mgmt
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxi_mgmt -d farfartaxi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - farfartaxi_pg_data:/var/lib/postgresql/data
+
+volumes:
+  farfartaxi_pg_data:
