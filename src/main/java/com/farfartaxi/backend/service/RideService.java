@@ -83,8 +83,11 @@ public class RideService {
             throw new AppException(HttpStatus.FORBIDDEN, "Not your ride");
         }
         RideStatus st = ride.getStatus();
+        if (st == RideStatus.CANCELLED) {
+            return toResponse(ride);
+        }
         if (st != RideStatus.PENDING_OPEN && st != RideStatus.ACCEPTED && st != RideStatus.IN_PROGRESS) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Ride cannot be cancelled");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Ride cannot be cancelled (status is " + st.name() + ")");
         }
         Long driverId = ride.getAcceptedByDriver() != null ? ride.getAcceptedByDriver().getId() : null;
         ride.setStatus(RideStatus.CANCELLED);
