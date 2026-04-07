@@ -3,8 +3,10 @@ package com.farfartaxi.backend.api;
 import com.farfartaxi.backend.api.dto.AuthDtos.AuthResponse;
 import com.farfartaxi.backend.api.dto.AuthDtos.ChangePasswordRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.ForgotPasswordRequest;
+import com.farfartaxi.backend.api.dto.AuthDtos.GoogleLoginRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.LoginRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.RegisterRequest;
+import com.farfartaxi.backend.api.dto.AuthDtos.SetPasswordRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.UserView;
 import com.farfartaxi.backend.service.AuthService;
 import jakarta.validation.Valid;
@@ -31,6 +33,16 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/google")
+    public AuthResponse google(@Valid @RequestBody GoogleLoginRequest request) {
+        return authService.loginWithGoogle(request.credential());
+    }
+
+    @PostMapping("/set-password")
+    public void setPassword(@Valid @RequestBody SetPasswordRequest request) {
+        authService.setLocalPassword(request);
     }
 
     @PostMapping("/forgot-password")

@@ -18,6 +18,13 @@ public final class AuthDtos {
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
     }
 
+    /** Google Sign-In: JWT credential from <code>google.accounts.id</code> callback. */
+    public record GoogleLoginRequest(@NotBlank String credential) {
+    }
+
+    public record SetPasswordRequest(@NotBlank @Size(min = 8, max = 100) String newPassword) {
+    }
+
     public record AuthResponse(String token, UserView user) {
     }
 

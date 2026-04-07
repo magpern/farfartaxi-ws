@@ -13,5 +13,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     void deleteById(Long id);
 
     Optional<UserEntity> findByEmailIgnoreCase(String email);
+
+    Optional<UserEntity> findByGoogleSub(String googleSub);
+
     List<UserEntity> findByRole(Role role);
 }

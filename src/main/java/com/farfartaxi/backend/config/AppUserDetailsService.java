@@ -18,6 +18,9 @@ public class AppUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         var user = userRepository.findByEmailIgnoreCase(username)
             .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return new SecurityUser(user.getId(), user.getEmail(), user.getPasswordHash(), user.getRole(), user.isEnabled());
+        String password = user.getPasswordHash() != null
+            ? user.getPasswordHash()
+            : "{noop}OAUTH_NO_LOCAL_PASSWORD";
+        return new SecurityUser(user.getId(), user.getEmail(), password, user.getRole(), user.isEnabled());
     }
 }
