@@ -1,13 +1,17 @@
 package com.farfartaxi.backend.service;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.net.URI;
+import java.util.function.Function;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriBuilder;
 
 /**
  * Server-side calls to OpenStreetMap Nominatim (browser calls are blocked by CORS and hit rate limits).
+ *
+ * <p>Query strings must be built with {@link UriBuilder#queryParam} — never pre-encode and pass a raw
+ * string to {@code RestClient.uri(String)}, or {@code %} in {@code åäö} becomes double-encoded and search breaks.
  *
  * @see <a href="https://operations.osmfoundation.org/policies/nominatim/">Nominatim usage policy</a>
  */
@@ -31,9 +35,13 @@ public class NominatimProxyService {
             return null;
         }
         int z = Math.clamp(zoom, 1, 18);
-        String path =
-            "/reverse?format=jsonv2&addressdetails=1&zoom=" + z + "&lat=" + lat + "&lon=" + lon;
-        return getJson(path);
+        return executeGet(b -> b.path("/reverse")
+                .queryParam("format", "jsonv2")
+                .queryParam("addressdetails", "1")
+                .queryParam("zoom", z)
+                .queryParam("lat", lat)
+                .queryParam("lon", lon)
+                .build());
     }
 
     public String search(String q, int limit, String countrycodes) {
@@ -41,27 +49,22 @@ public class NominatimProxyService {
             return null;
         }
         int lim = Math.clamp(limit, 1, 10);
-        String cc = countrycodes == null || countrycodes.isBlank() ? "se" : countrycodes.trim().toLowerCase();
-        if (!cc.matches("[a-z]{2}")) {
-            cc = "se";
-        }
-        String encodedQ = URLEncoder.encode(q, StandardCharsets.UTF_8);
-        String path =
-            "/search?format=jsonv2&addressdetails=1&limit="
-                + lim
-                + "&countrycodes="
-                + cc
-                + "&q="
-                + encodedQ;
-        return getJson(path);
+        String rawCc = countrycodes == null || countrycodes.isBlank() ? "se" : countrycodes.trim().toLowerCase();
+        final String cc = rawCc.matches("[a-z]{2}") ? rawCc : "se";
+        return executeGet(b -> b.path("/search")
+                .queryParam("format", "jsonv2")
+                .queryParam("addressdetails", "1")
+                .queryParam("limit", lim)
+                .queryParam("countrycodes", cc)
+                .queryParam("q", q)
+                .build());
     }
 
-    private String getJson(String pathAndQuery) {
+    private String executeGet(Function<UriBuilder, URI> uriSpec) {
         throttle();
         try {
-            return client
-                    .get()
-                    .uri(pathAndQuery)
+            return client.get()
+                    .uri(uriSpec)
                     .header("User-Agent", USER_AGENT)
                     .header("Accept-Language", "sv,en")
                     .retrieve()
