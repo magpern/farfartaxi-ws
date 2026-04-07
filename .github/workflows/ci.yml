@@ -21,7 +21,7 @@ jobs:
           java-version: "21"
           cache: maven
       - name: Build and test
-        run: ./mvnw -B verify
+        run: chmod +x mvnw && ./mvnw -B verify
 
   # Builds public magpern/farfartaxi-web@main (sibling repo). Marked optional until that repo exists.
   frontend:
