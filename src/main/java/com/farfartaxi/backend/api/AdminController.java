@@ -1,6 +1,7 @@
 package com.farfartaxi.backend.api;
 
 import com.farfartaxi.backend.api.dto.AdminDtos.ForcePasswordResetRequest;
+import com.farfartaxi.backend.api.dto.AdminDtos.SetUserEnabledRequest;
 import com.farfartaxi.backend.api.dto.AdminDtos.UpdateUserRequest;
 import com.farfartaxi.backend.model.Role;
 import com.farfartaxi.backend.model.UserEntity;
@@ -46,6 +47,26 @@ public class AdminController {
         return toDto(adminService.setRole(userId, Role.USER));
     }
 
+    @PostMapping("/users/{userId}/promote-admin")
+    public Map<String, Object> promoteAdmin(@PathVariable Long userId) {
+        return toDto(adminService.setRole(userId, Role.ADMIN));
+    }
+
+    @PostMapping("/users/{userId}/demote-admin-to-driver")
+    public Map<String, Object> demoteAdminToDriver(@PathVariable Long userId) {
+        return toDto(adminService.setRole(userId, Role.DRIVER));
+    }
+
+    @PostMapping("/users/{userId}/enabled")
+    public Map<String, Object> setUserEnabled(@PathVariable Long userId, @Valid @RequestBody SetUserEnabledRequest request) {
+        return toDto(adminService.setEnabled(userId, request.enabled()));
+    }
+
+    @DeleteMapping("/users/{userId}")
+    public void deleteUser(@PathVariable Long userId) {
+        adminService.deleteUser(userId);
+    }
+
     @PostMapping("/users/{userId}/force-password-change")
     public Map<String, Object> forcePasswordChange(@PathVariable Long userId, @Valid @RequestBody ForcePasswordResetRequest request) {
         return toDto(adminService.setMustChangePassword(userId, request.mustChangePassword()));
@@ -62,12 +83,16 @@ public class AdminController {
     }
 
     private Map<String, Object> toDto(UserEntity user) {
+        boolean hasLocal = user.getPasswordHash() != null;
+        boolean effectiveMustChange = hasLocal && user.isMustChangePassword();
         return Map.of(
             "id", user.getId(),
             "email", user.getEmail(),
             "fullName", user.getFullName(),
             "role", user.getRole().name(),
-            "mustChangePassword", user.isMustChangePassword(),
+            "mustChangePassword", effectiveMustChange,
+            "hasLocalPassword", hasLocal,
+            "enabled", user.isEnabled(),
             "phone", user.getPhone() == null ? "" : user.getPhone(),
             "vehicleNote", user.getVehicleNote() == null ? "" : user.getVehicleNote()
         );

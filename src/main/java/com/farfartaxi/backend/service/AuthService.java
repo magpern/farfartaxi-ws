@@ -148,7 +148,9 @@ public class AuthService {
     }
 
     public UserView toUserView(UserEntity user) {
-        return new UserView(user.getId(), user.getEmail(), user.getFullName(), user.getRole().name(), user.isMustChangePassword());
+        boolean hasLocal = user.getPasswordHash() != null;
+        boolean mustPw = hasLocal && user.isMustChangePassword();
+        return new UserView(user.getId(), user.getEmail(), user.getFullName(), user.getRole().name(), mustPw, hasLocal);
     }
 
     private AuthResponse toAuthResponse(UserEntity user) {

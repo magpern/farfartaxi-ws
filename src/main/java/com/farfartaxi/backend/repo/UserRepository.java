@@ -17,4 +17,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     Optional<UserEntity> findByGoogleSub(String googleSub);
 
     List<UserEntity> findByRole(Role role);
+
+    long countByRole(Role role);
+
+    long countByRoleAndEnabled(Role role, boolean enabled);
 }

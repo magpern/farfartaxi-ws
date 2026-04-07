@@ -28,6 +28,11 @@ public class DriverController {
         return rideService.listOpenForDrivers();
     }
 
+    @GetMapping("/rides/mine")
+    public List<RideResponse> myAssignedRides() {
+        return rideService.listMyAssignedRides();
+    }
+
     @PostMapping("/rides/{rideId}/accept")
     public RideResponse accept(@PathVariable Long rideId) {
         return rideService.accept(rideId);

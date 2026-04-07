@@ -34,6 +34,14 @@ public final class AuthDtos {
     public record ChangePasswordRequest(@NotBlank String oldPassword, @NotBlank @Size(min = 8) String newPassword) {
     }
 
-    public record UserView(Long id, String email, String fullName, String role, boolean mustChangePassword) {
+    public record UserView(
+        Long id,
+        String email,
+        String fullName,
+        String role,
+        /** Only meaningful for accounts with a local password (not Google-only). */
+        boolean mustChangePassword,
+        boolean hasLocalPassword
+    ) {
     }
 }

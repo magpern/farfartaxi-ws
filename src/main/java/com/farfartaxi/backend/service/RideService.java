@@ -16,6 +16,7 @@ import com.farfartaxi.backend.repo.RideRepository;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -81,16 +82,38 @@ public class RideService {
         if (!ride.getPassenger().getId().equals(user.getId())) {
             throw new AppException(HttpStatus.FORBIDDEN, "Not your ride");
         }
-        if (ride.getStatus() != RideStatus.PENDING_OPEN) {
+        RideStatus st = ride.getStatus();
+        if (st != RideStatus.PENDING_OPEN && st != RideStatus.ACCEPTED && st != RideStatus.IN_PROGRESS) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Ride cannot be cancelled");
         }
+        Long driverId = ride.getAcceptedByDriver() != null ? ride.getAcceptedByDriver().getId() : null;
         ride.setStatus(RideStatus.CANCELLED);
         ride.setCancelReason(reason);
-        return toResponse(rideRepository.save(ride));
+        ride = rideRepository.save(ride);
+        RideResponse response = toResponse(ride);
+        if (driverId != null) {
+            pushService.notifyUser(driverId, "Resa avbokad", "Passageraren har avbokat resan.");
+        }
+        realtimeService.publish(ride.getId(), ride.getPassenger().getId(), driverId, response);
+        return response;
     }
 
     public List<RideResponse> listOpenForDrivers() {
         return rideRepository.findByStatusOrderByScheduledAtAsc(RideStatus.PENDING_OPEN).stream().map(this::toResponse).toList();
+    }
+
+    /** Rides this driver has accepted and not yet completed. */
+    public List<RideResponse> listMyAssignedRides() {
+        UserEntity driver = currentUserService.requireUser();
+        requireRole(driver, Role.DRIVER);
+        return rideRepository
+            .findByAcceptedByDriver_IdAndStatusInOrderByScheduledAtAsc(
+                driver.getId(),
+                Set.of(RideStatus.ACCEPTED, RideStatus.IN_PROGRESS)
+            )
+            .stream()
+            .map(this::toResponse)
+            .toList();
     }
 
     @Transactional

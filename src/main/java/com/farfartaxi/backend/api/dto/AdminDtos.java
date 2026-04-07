@@ -17,4 +17,7 @@ public final class AdminDtos {
 
     public record ForcePasswordResetRequest(@NotNull Boolean mustChangePassword) {
     }
+
+    public record SetUserEnabledRequest(@NotNull Boolean enabled) {
+    }
 }
