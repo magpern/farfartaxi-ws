@@ -40,6 +40,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails user = userDetailsService.loadUserByUsername(email);
                 if (!user.isEnabled()) {
+                    request.setAttribute(JwtRequestAttributes.JWT_USER_DISABLED, Boolean.TRUE);
                     filterChain.doFilter(request, response);
                     return;
                 }
@@ -48,7 +49,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }
         } catch (RuntimeException ignored) {
-            // Ignore invalid tokens; request will be unauthorized if endpoint requires auth.
+            request.setAttribute(JwtRequestAttributes.JWT_INVALID, Boolean.TRUE);
+            // Invalid/expired token; protected routes will hit AuthenticationEntryPoint.
         }
         filterChain.doFilter(request, response);
     }

@@ -12,6 +12,8 @@ services:
     pull_policy: always
     restart: unless-stopped
     environment:
+      # Enables application-rpi.properties (extra logging hints; security WARN lines are always on)
+      SPRING_PROFILES_ACTIVE: rpi
       SERVER_PORT: 8080
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/farfartaxi
       SPRING_DATASOURCE_USERNAME: taxi_mgmt
