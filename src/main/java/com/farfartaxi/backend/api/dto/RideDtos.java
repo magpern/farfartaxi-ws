@@ -19,7 +19,9 @@ public final class RideDtos {
         @NotNull Double toLat,
         @NotNull Double toLon,
         String waypointsJson,
-        @NotNull @Future Instant scheduledAt
+        @NotNull @Future Instant scheduledAt,
+        /** When set by a driver or admin, the ride is booked for this passenger instead of the caller. */
+        Long passengerUserId
     ) {
     }
 

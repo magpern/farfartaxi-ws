@@ -13,6 +13,7 @@ import com.farfartaxi.backend.model.Role;
 import com.farfartaxi.backend.model.UserEntity;
 import com.farfartaxi.backend.repo.RideFeedbackRepository;
 import com.farfartaxi.backend.repo.RideRepository;
+import com.farfartaxi.backend.repo.UserRepository;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Service;
 public class RideService {
     private final RideRepository rideRepository;
     private final RideFeedbackRepository rideFeedbackRepository;
+    private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
     private final PushService pushService;
     private final RideRealtimeService realtimeService;
@@ -34,6 +36,7 @@ public class RideService {
     public RideService(
         RideRepository rideRepository,
         RideFeedbackRepository rideFeedbackRepository,
+        UserRepository userRepository,
         CurrentUserService currentUserService,
         PushService pushService,
         RideRealtimeService realtimeService,
@@ -41,6 +44,7 @@ public class RideService {
     ) {
         this.rideRepository = rideRepository;
         this.rideFeedbackRepository = rideFeedbackRepository;
+        this.userRepository = userRepository;
         this.currentUserService = currentUserService;
         this.pushService = pushService;
         this.realtimeService = realtimeService;
@@ -49,9 +53,10 @@ public class RideService {
 
     @Transactional
     public RideResponse book(BookRideRequest request) {
-        UserEntity user = currentUserService.requireUser();
+        UserEntity actor = currentUserService.requireUser();
+        UserEntity passenger = resolvePassenger(actor, request.passengerUserId());
         RideEntity ride = new RideEntity();
-        ride.setPassenger(user);
+        ride.setPassenger(passenger);
         ride.setFromAddress(request.fromAddress());
         ride.setFromLat(request.fromLat());
         ride.setFromLon(request.fromLon());
@@ -321,6 +326,21 @@ public class RideService {
 
     public RideEntity mustFindRide(Long rideId) {
         return rideRepository.findById(rideId).orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Ride not found"));
+    }
+
+    private UserEntity resolvePassenger(UserEntity actor, Long passengerUserId) {
+        if (passengerUserId == null) {
+            return actor;
+        }
+        if (actor.getRole() != Role.DRIVER && actor.getRole() != Role.ADMIN) {
+            throw new AppException(HttpStatus.FORBIDDEN, "Cannot book for another user");
+        }
+        UserEntity passenger = userRepository.findById(passengerUserId)
+            .orElseThrow(() -> new AppException(HttpStatus.BAD_REQUEST, "Passenger user not found"));
+        if (!passenger.isEnabled()) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Passenger account is disabled");
+        }
+        return passenger;
     }
 
     private void requireRole(UserEntity user, Role role) {
