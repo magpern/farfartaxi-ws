@@ -97,7 +97,8 @@ public final class RideDtos {
         boolean feedbackGiven,
         Double lastLocationAccuracyM,
         String etaTarget,
-        boolean locationStale
+        boolean locationStale,
+        boolean shareActive
     ) {
     }
 

@@ -61,6 +61,19 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
         """)
     int clearPositionsOfRidesEndedBefore(@org.springframework.data.repository.query.Param("cutoff") Instant cutoff);
 
+    /** Rides stuck EN_ROUTE/ARRIVED/PICKED_UP more than 12 h after start: drop the position too. */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+        update RideEntity r set r.lastDriverLat = null, r.lastDriverLon = null, r.lastLocationAccuracyM = null,
+            r.etaLat = null, r.etaLon = null
+        where (r.lastDriverLat is not null or r.lastDriverLon is not null or r.lastLocationAccuracyM is not null
+            or r.etaLat is not null or r.etaLon is not null)
+          and r.status in (com.farfartaxi.backend.model.RideStatus.EN_ROUTE, com.farfartaxi.backend.model.RideStatus.ARRIVED,
+            com.farfartaxi.backend.model.RideStatus.PICKED_UP)
+          and r.startedAt <= :cutoff
+        """)
+    int clearPositionsOfRunawayRides(@org.springframework.data.repository.query.Param("cutoff") Instant cutoff);
+
     @Modifying
     @Query("delete from RideEntity r where r.test = true")
     int deleteAllTestRides();

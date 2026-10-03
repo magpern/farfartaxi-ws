@@ -69,7 +69,9 @@ public class RideResponseFactory {
             driver == null ? null : driver.getId(),
             driver == null ? null : driver.getFullName(),
             ride.getEtaMinutes(),
-            ride.getLastDriverLat(), ride.getLastDriverLon(), ride.getLastLocationAt(),
+            positionVisible(ride) ? ride.getLastDriverLat() : null,
+            positionVisible(ride) ? ride.getLastDriverLon() : null,
+            positionVisible(ride) ? ride.getLastLocationAt() : null,
             ride.getKind().name(),
             viewer == null ? null : ride.getPickupNote(),
             ride.isUrgent(),
@@ -84,8 +86,37 @@ public class RideResponseFactory {
             myOffer.map(RideOfferEntity::isPriority).orElse(null),
             viewer == null ? List.of() : availableActions(ride, viewer, isPassenger, isDriver, myOffer),
             feedbackGiven,
-            ride.getLastLocationAccuracyM(), ride.getEtaTarget(), isLocationStale(ride, clock.instant())
+            positionVisible(ride) ? ride.getLastLocationAccuracyM() : null, ride.getEtaTarget(),
+            isLocationStale(ride, clock.instant()),
+            isPassenger && isShareActive(ride, clock.instant())
         );
+    }
+
+    /** The driver position is only meaningful (and only exposed) while the driver is on the way or driving. */
+    public static boolean positionVisible(RideEntity ride) {
+        RideStatus st = ride.getStatus();
+        return st == RideStatus.EN_ROUTE || st == RideStatus.ARRIVED || st == RideStatus.PICKED_UP;
+    }
+
+    /** A non-revoked token exists and has not expired. */
+    public static boolean isShareActive(RideEntity ride, java.time.Instant now) {
+        if (ride.getShareToken() == null || ride.getShareRevokedAt() != null) {
+            return false;
+        }
+        java.time.Instant exp = shareExpiry(ride);
+        return exp == null || now.isBefore(exp);
+    }
+
+    static final java.time.Duration SHARE_GRACE = java.time.Duration.ofHours(1);
+    static final java.time.Duration RUNAWAY_LIMIT = java.time.Duration.ofHours(12);
+
+    /** Ride end + 1 h; for a ride that never ends, 12 h after it started; null while neither applies. */
+    public static java.time.Instant shareExpiry(RideEntity ride) {
+        java.time.Instant ended = ride.endedAt();
+        if (ended != null) {
+            return ended.plus(SHARE_GRACE);
+        }
+        return ride.getStartedAt() == null ? null : ride.getStartedAt().plus(RUNAWAY_LIMIT);
     }
 
     /** Stale = the driver should be sending positions (EN_ROUTE..PICKED_UP) but the last one is missing or older than 2 min. */

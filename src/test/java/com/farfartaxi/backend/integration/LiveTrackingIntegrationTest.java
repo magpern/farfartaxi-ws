@@ -50,7 +50,7 @@ class LiveTrackingIntegrationTest extends M1TestSupport {
     }
 
     private JsonNode pub(String token, int expected, String ip) throws Exception {
-        return call("GET", "/api/public/share/" + token, null, null, expected, "X-Forwarded-For", ip).body();
+        return call("GET", "/api/public/share/" + token, null, null, expected, "X-Forwarded-For", ip + ", 172.18.0.1").body();
     }
 
     private void verifyOsrmCalls(int n) {
@@ -155,13 +155,13 @@ class LiveTrackingIntegrationTest extends M1TestSupport {
         loc(id, 59.31, 18.05);
         drive(d1, id, "complete");
         Instant ended = clock.instant();
-        assertThat(ride(p1, id).get("lastDriverLat").isNull()).isFalse();
+        assertThat(rideRepo.findById(id).orElseThrow().getLastDriverLat()).isNotNull();
 
         clock.set(ended.plus(Duration.ofHours(1)).minusSeconds(1));
         retention.clearExpiredPositions();
-        JsonNode before = ride(p1, id);
-        assertThat(before.get("lastDriverLat").isNull()).isFalse();
-        assertThat(before.get("lastLocationAccuracyM").isNull()).isFalse();
+        var before = rideRepo.findById(id).orElseThrow();
+        assertThat(before.getLastDriverLat()).isNotNull();
+        assertThat(before.getLastLocationAccuracyM()).isNotNull();
         assertThat(rideRepo.findById(id).orElseThrow().getEtaLat()).isNotNull();
 
         clock.set(ended.plus(Duration.ofHours(1)));
@@ -325,6 +325,112 @@ class LiveTrackingIntegrationTest extends M1TestSupport {
         String token = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
         call("GET", "/api/rides/share/" + token, p1, null, 404);
         assertThat(call("GET", "/api/rides/share/" + token, null, null, null).status()).isIn(401, 403, 404);
+    }
+
+    // ------------------------------------------------------------------ review fixes
+
+    @Test
+    void returnClearsAllPositionFieldsAndNewDriverSeesNoStalePosition() throws Exception {
+        long id = rideInProgress("start");
+        loc(id, 59.31, 18.05);
+        String token = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
+        assertThat(pub(token, 200, freshIp()).get("driver").isNull()).isFalse();
+
+        call("POST", "/api/driver/rides/" + id + "/return", d1, Map.of("reason", "bil trasig"), 200);
+        assertThat(pub(token, 200, freshIp()).get("driver").isNull()).isTrue();
+        JsonNode r = ride(p1, id);
+        assertThat(r.get("lastDriverLat").isNull()).isTrue();
+        assertThat(r.get("lastDriverLon").isNull()).isTrue();
+        assertThat(r.get("lastLocationAt").isNull()).isTrue();
+        assertThat(r.get("lastLocationAccuracyM").isNull()).isTrue();
+        assertThat(r.get("etaMinutes").isNull()).isTrue();
+        var e = rideRepo.findById(id).orElseThrow();
+        assertThat(e.getLastDriverLat()).isNull();
+        assertThat(e.getEtaTarget()).isNull();
+        assertThat(e.getEtaComputedAt()).isNull();
+        assertThat(e.getEtaLat()).isNull();
+        assertThat(e.getEtaLon()).isNull();
+
+        acceptOk(d2, id);
+        assertThat(ride(p1, id).get("lastDriverLat").isNull()).isTrue();
+        drive(d2, id, "start");
+        assertThat(ride(p1, id).get("lastDriverLat").isNull()).isTrue();
+        assertThat(ride(p1, id).get("etaMinutes").isNull()).isTrue();
+        assertThat(pub(token, 200, freshIp()).get("driver").isNull()).isTrue();
+    }
+
+    @Test
+    void positionHiddenOutsideDrivingStatuses() throws Exception {
+        long id = rideInProgress("start");
+        loc(id, 59.31, 18.05);
+        var e = rideRepo.findById(id).orElseThrow();
+        e.setStatus(com.farfartaxi.backend.model.RideStatus.COMPLETED); // simulate a leftover position on an ended ride
+        e.setCompletedAt(clock.instant());
+        rideRepo.save(e);
+        assertThat(ride(p1, id).get("lastDriverLat").isNull()).isTrue();
+    }
+
+    @Test
+    void scheduledRunClearsPositions() throws Exception {
+        long id = rideInProgress("pickup");
+        loc(id, 59.31, 18.05);
+        drive(d1, id, "complete");
+        clock.advance(Duration.ofHours(1));
+        org.springframework.test.util.ReflectionTestUtils.setField(retention, "enabled", true);
+        try {
+            retention.run();
+        } finally {
+            org.springframework.test.util.ReflectionTestUtils.setField(retention, "enabled", false);
+        }
+        assertThat(rideRepo.findById(id).orElseThrow().getLastDriverLat()).isNull();
+    }
+
+    @Test
+    void shareActiveFlagAndRunawayRideExpiry() throws Exception {
+        long id = rideInProgress("start");
+        loc(id, 59.31, 18.05);
+        assertThat(ride(p1, id).get("shareActive").asBoolean()).isFalse();
+        assertThat(ride(d1, id).get("shareActive").asBoolean()).isFalse();
+        String token = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
+        assertThat(ride(p1, id).get("shareActive").asBoolean()).isTrue();
+        assertThat(ride(d1, id).get("shareActive").asBoolean()).isFalse();
+
+        clock.advance(Duration.ofHours(12).minusSeconds(1));
+        pub(token, 200, freshIp());
+        retention.clearExpiredPositions();
+        assertThat(rideRepo.findById(id).orElseThrow().getLastDriverLat()).isNotNull();
+
+        clock.advance(Duration.ofSeconds(1));
+        pub(token, 410, freshIp());
+        assertThat(ride(p1, id).get("shareActive").asBoolean()).isFalse();
+        retention.clearExpiredPositions();
+        assertThat(rideRepo.findById(id).orElseThrow().getLastDriverLat()).isNull();
+        assertThat(rideRepo.findById(id).orElseThrow().getEtaLat()).isNull();
+
+        long id2 = rideInProgress("start");
+        call("POST", "/api/rides/" + id2 + "/share", p1, null, 200);
+        call("DELETE", "/api/rides/" + id2 + "/share", p1, null, null);
+        assertThat(ride(p1, id2).get("shareActive").asBoolean()).isFalse();
+    }
+
+    @Test
+    void clientIpSelection() throws Exception {
+        long id = bookAt(BASE.plus(Duration.ofDays(5)));
+        String token = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
+        // CF-Connecting-IP wins; a spoofed leftmost XFF entry does not give a fresh bucket
+        String cf = freshIp();
+        for (int i = 0; i < 60; i++) {
+            call("GET", "/api/public/share/" + token, null, null, 200, "CF-Connecting-IP", cf, "X-Forwarded-For", freshIp() + ", 1.1.1.1");
+        }
+        call("GET", "/api/public/share/" + token, null, null, 429, "CF-Connecting-IP", cf, "X-Forwarded-For", freshIp() + ", 1.1.1.1");
+        // without CF: the entry 2 from the right counts, spoofed extra left entries are ignored
+        String real = freshIp();
+        for (int i = 0; i < 60; i++) {
+            call("GET", "/api/public/share/" + token, null, null, 200, "X-Forwarded-For", freshIp() + ", " + real + ", 172.18.0.1");
+        }
+        call("GET", "/api/public/share/" + token, null, null, 429, "X-Forwarded-For", "9.9.9.9, " + real + ", 172.18.0.1");
+        // garbage is never used as a key: falls back to the remote address (shared bucket), still works
+        call("GET", "/api/public/share/" + token, null, null, null, "CF-Connecting-IP", "not-an-ip<script>", "X-Forwarded-For", "x, y");
     }
 
     private void setName(long userId, String name) {

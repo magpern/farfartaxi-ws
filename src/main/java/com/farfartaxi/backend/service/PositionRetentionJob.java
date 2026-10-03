@@ -19,7 +19,7 @@ public class PositionRetentionJob {
 
     private final RideRepository rides;
     private final Clock clock;
-    private final boolean enabled;
+    private boolean enabled;
 
     public PositionRetentionJob(RideRepository rides, Clock clock,
                                 @Value("${app.rides.scheduler-enabled:true}") boolean enabled) {
@@ -44,6 +44,10 @@ public class PositionRetentionJob {
         if (n > 0) {
             log.info("Cleared stored driver position of {} ended rides", n);
         }
-        return n;
+        int runaway = rides.clearPositionsOfRunawayRides(clock.instant().minus(RideResponseFactory.RUNAWAY_LIMIT));
+        if (runaway > 0) {
+            log.info("Cleared stored driver position of {} runaway rides (> 12 h since start)", runaway);
+        }
+        return n + runaway;
     }
 }

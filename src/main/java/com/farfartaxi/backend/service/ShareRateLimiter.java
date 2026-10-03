@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class ShareRateLimiter {
     static final int LIMIT_PER_MINUTE = 60;
-    private static final int PRUNE_THRESHOLD = 10_000;
+    private static final int MAX_ENTRIES = 10_000;
+    private static final int MAX_KEY_LENGTH = 45; // longest IPv6 literal
 
     private record Window(long minute, int count) {
     }
@@ -25,11 +26,17 @@ public class ShareRateLimiter {
     /** @return true when the request is allowed */
     public boolean tryAcquire(String ip) {
         long minute = clock.instant().getEpochSecond() / 60;
-        if (windows.size() > PRUNE_THRESHOLD) {
+        if (ip == null || ip.isEmpty() || ip.length() > MAX_KEY_LENGTH) {
+            return false; // only IP literals are keys
+        }
+        if (windows.size() >= MAX_ENTRIES && !windows.containsKey(ip)) {
             for (Iterator<Window> it = windows.values().iterator(); it.hasNext(); ) {
                 if (it.next().minute() < minute) {
                     it.remove();
                 }
+            }
+            if (windows.size() >= MAX_ENTRIES) {
+                windows.clear(); // hard cap: reset every window rather than grow without bound
             }
         }
         boolean[] allowed = {false};

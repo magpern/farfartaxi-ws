@@ -383,6 +383,19 @@ public class RideEntity {
     public Instant getShareRevokedAt() { return shareRevokedAt; }
     public void setShareRevokedAt(Instant shareRevokedAt) { this.shareRevokedAt = shareRevokedAt; }
 
+    /** Drops every stored driver position / ETA field (driver change, return, retention). */
+    public void clearTracking() {
+        lastDriverLat = null;
+        lastDriverLon = null;
+        lastLocationAccuracyM = null;
+        lastLocationAt = null;
+        etaMinutes = null;
+        etaTarget = null;
+        etaComputedAt = null;
+        etaLat = null;
+        etaLon = null;
+    }
+
     /** When the ride ended (COMPLETED: completed_at, CANCELLED: cancelled_at, falling back to updated_at); null while active. */
     public Instant endedAt() {
         if (status == RideStatus.COMPLETED) {
