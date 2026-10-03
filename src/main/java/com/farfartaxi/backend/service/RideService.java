@@ -5,7 +5,11 @@ import com.farfartaxi.backend.api.dto.RideDtos.BookRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.DriverStatsResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.EditRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.LocationUpdateRequest;
+import com.farfartaxi.backend.api.dto.RideDtos.PublicShareResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.RideResponse;
+import com.farfartaxi.backend.api.dto.RideDtos.ShareDriver;
+import com.farfartaxi.backend.api.dto.RideDtos.ShareLinkResponse;
+import com.farfartaxi.backend.api.dto.RideDtos.SharePlace;
 import com.farfartaxi.backend.api.dto.RideDtos.SubmitFeedbackRequest;
 import com.farfartaxi.backend.model.OfferStatus;
 import com.farfartaxi.backend.model.RideEntity;
@@ -44,6 +48,11 @@ public class RideService {
     private static final Duration NO_DRIVER_UPCOMING_GRACE = Duration.ofHours(24);
     private static final List<String> REMINDER_KINDS = List.of(RideTimerService.REMINDER_24H, RideTimerService.REMINDER_2H,
         RideTimerService.URGENT, RideTimerService.DRIVER_REMINDER_30M, NOW_REPUSH);
+    private static final java.security.SecureRandom SHARE_RANDOM = new java.security.SecureRandom();
+    private static final java.util.Set<RideStatus> SHAREABLE = java.util.EnumSet.of(RideStatus.REQUESTED,
+        RideStatus.ACCEPTED, RideStatus.EN_ROUTE, RideStatus.ARRIVED, RideStatus.PICKED_UP);
+    private static final Duration ETA_MIN_INTERVAL = Duration.ofSeconds(30);
+    private static final double ETA_MIN_MOVE_METERS = 100;
     private static final double MATERIAL_PICKUP_METERS = 500;
     private static final Duration MATERIAL_TIME_SHIFT = Duration.ofMinutes(30);
     private static final double MATERIAL_ROUTE_RATIO = 1.25;
@@ -68,8 +77,10 @@ public class RideService {
     private final RideSystemTransitions systemTransitions;
     private final RideResponseFactory responses;
     private final org.springframework.transaction.support.TransactionTemplate freshTx;
+    private final org.springframework.transaction.support.TransactionTemplate writeTx;
     private final Clock clock;
     private final double defaultEtaKmh;
+    private final String publicBaseUrl;
 
     public RideService(
         RideRepository rideRepository,
@@ -92,8 +103,10 @@ public class RideService {
         RideResponseFactory responses,
         org.springframework.transaction.support.TransactionTemplate txTemplate,
         Clock clock,
-        @Value("${app.eta.default-kmh}") double defaultEtaKmh
+        @Value("${app.eta.default-kmh}") double defaultEtaKmh,
+        @Value("${app.public-base-url:https://farfartaxi.pernemark.se}") String publicBaseUrl
     ) {
+        this.publicBaseUrl = publicBaseUrl.trim().replaceAll("/+$", "");
         this.rideRepository = rideRepository;
         this.rideFeedbackRepository = rideFeedbackRepository;
         this.userRepository = userRepository;
@@ -115,6 +128,8 @@ public class RideService {
         this.freshTx = new org.springframework.transaction.support.TransactionTemplate(txTemplate.getTransactionManager());
         this.freshTx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.freshTx.setReadOnly(true);
+        this.writeTx = new org.springframework.transaction.support.TransactionTemplate(txTemplate.getTransactionManager());
+        this.writeTx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
         this.defaultEtaKmh = defaultEtaKmh;
     }
@@ -222,6 +237,7 @@ public class RideService {
         }
         offers.withdrawAll(ride);
         ride.setCancelReason(reason);
+        ride.setCancelledAt(clock.instant());
         ride.setUrgent(false);
         ride = rideRepository.save(ride);
         events.record(ride, user.getId(), RideEventRecorder.CANCELLED, reason);
@@ -501,6 +517,7 @@ public class RideService {
         }
         machine.transition(ride, RideStatus.ACCEPTED, Actor.DRIVER);
         ride.setAcceptedByDriver(driver);
+        ride.clearTracking();
         ride.setUrgent(false);
         try {
             offers.accept(ride, driver);
@@ -567,6 +584,7 @@ public class RideService {
         machine.transition(ride, RideStatus.REQUESTED, Actor.DRIVER);
         ride.setAcceptedByDriver(null);
         ride.setStartedAt(null);
+        ride.clearTracking();
         resetWaitWindow(ride);
         notificationRepository.deleteByRideIdAndKindIn(rideId,
             java.util.List.of(RideTimerService.DRIVER_REMINDER_30M, "ETA_5MIN", "ARRIVED"));
@@ -584,7 +602,7 @@ public class RideService {
 
     @Transactional
     public RideResponse startDriving(Long rideId) {
-        return driverStep(rideId, RideStatus.EN_ROUTE, RideEventRecorder.STARTED, r -> r.setStartedAt(clock.instant()),
+        return driverStep(rideId, RideStatus.EN_ROUTE, RideEventRecorder.STARTED, r -> { r.clearTracking(); r.setStartedAt(clock.instant()); },
             "EN_ROUTE", "ride.en_route", false);
     }
 
@@ -633,9 +651,33 @@ public class RideService {
         machine.require(ride, to, Actor.DRIVER);
     }
 
-    @Transactional
+    /** ETA fetched outside the write transaction: the target it was computed for and the OSRM seconds (null = OSRM failed). */
+    private record FetchedEta(String target, Double seconds) {
+    }
+
+    /**
+     * Phase 1 (short read tx): validate and decide whether an ETA recompute is due. Phase 2 (no tx): the OSRM call
+     * (up to 3 s) so no DB connection is held meanwhile. Phase 3 (short write tx): re-decide with fresh data and
+     * persist; a fetched ETA that is no longer needed or no longer matches the target is discarded.
+     */
     public RideResponse updateLocation(Long rideId, LocationUpdateRequest request) {
-        UserEntity driver = currentUserService.requireUser();
+        Instant now = clock.instant();
+        double[] plan = freshTx.execute(st -> {
+            UserEntity driver = currentUserService.requireUser();
+            RideEntity ride = loadForLocation(rideId, driver);
+            String target = etaTargetIfRecompute(ride, request.lat(), request.lon(), now);
+            return target == null ? null : etaDestination(ride, target);
+        });
+        FetchedEta fetched = null;
+        if (plan != null) {
+            String target = plan[2] == 0 ? "PICKUP" : "DESTINATION";
+            fetched = new FetchedEta(target, routes.drivingSeconds(request.lat(), request.lon(), plan[0], plan[1]));
+        }
+        FetchedEta eta = fetched;
+        return writeTx.execute(st -> persistLocation(rideId, request, now, eta));
+    }
+
+    private RideEntity loadForLocation(Long rideId, UserEntity driver) {
         requireRole(driver, Role.DRIVER);
         RideEntity ride = mustFindRide(rideId, driver);
         requireDriverAssignment(ride, driver);
@@ -646,13 +688,33 @@ public class RideService {
         if (st != RideStatus.EN_ROUTE && st != RideStatus.ARRIVED && st != RideStatus.PICKED_UP) {
             throw AppException.conflict("INVALID_TRANSITION", "Platsuppdatering kan bara skickas under körning");
         }
+        return ride;
+    }
+
+    private RideResponse persistLocation(Long rideId, LocationUpdateRequest request, Instant now, FetchedEta fetched) {
+        UserEntity driver = currentUserService.requireUser();
+        RideEntity ride = loadForLocation(rideId, driver);
+        RideStatus st = ride.getStatus();
         ride.setLastDriverLat(request.lat());
         ride.setLastDriverLon(request.lon());
-        ride.setLastLocationAt(clock.instant());
-        // heading to the pickup until the passenger is on board, then to the destination
-        boolean toPickup = st != RideStatus.PICKED_UP;
-        ride.setEtaMinutes(calculateEtaMinutes(request.lat(), request.lon(),
-            toPickup ? ride.getFromLat() : ride.getToLat(), toPickup ? ride.getFromLon() : ride.getToLon()));
+        ride.setLastLocationAccuracyM(request.accuracy());
+        ride.setLastLocationAt(now);
+        String target = etaTargetIfRecompute(ride, request.lat(), request.lon(), now);
+        if (target != null) {
+            double[] dest = etaDestination(ride, target);
+            Double seconds;
+            if (fetched != null && fetched.target().equals(target)) {
+                seconds = fetched.seconds();
+            } else {
+                seconds = routes.drivingSeconds(request.lat(), request.lon(), dest[0], dest[1]); // rare race: state changed meanwhile
+            }
+            ride.setEtaMinutes(seconds != null ? Math.max(1, (int) Math.round(seconds / 60.0))
+                : calculateEtaMinutes(request.lat(), request.lon(), dest[0], dest[1]));
+            ride.setEtaTarget(target);
+            ride.setEtaComputedAt(now);
+            ride.setEtaLat(request.lat());
+            ride.setEtaLon(request.lon());
+        }
         ride = rideRepository.save(ride);
         if (st == RideStatus.EN_ROUTE && ride.getEtaMinutes() != null && ride.getEtaMinutes() <= ETA_PUSH_MINUTES
             && markNotificationSent(rideId, "ETA_5MIN")) {
@@ -661,6 +723,36 @@ public class RideService {
         }
         responses.publish(ride);
         return responses.toResponse(ride, driver, null);
+    }
+
+    /** {lat, lon, 0 = pickup | 1 = destination} of the ETA target. */
+    private static double[] etaDestination(RideEntity ride, String target) {
+        boolean toPickup = "PICKUP".equals(target);
+        return new double[] {toPickup ? ride.getFromLat() : ride.getToLat(), toPickup ? ride.getFromLon() : ride.getToLon(),
+            toPickup ? 0 : 1};
+    }
+
+    /**
+     * Target = pickup until the passenger is on board, then the destination. Recompute only when (more than 30 s since
+     * the last computation AND moved more than 100 m since it), the status changed since, the target changed, or there
+     * is no ETA yet; otherwise the previous ETA stands (ETA_5MIN uses the stored value).
+     *
+     * @return the target to compute for, or null when the stored ETA stands
+     */
+    private String etaTargetIfRecompute(RideEntity ride, double lat, double lon, Instant now) {
+        boolean toPickup = ride.getStatus() != RideStatus.PICKED_UP;
+        String target = toPickup ? "PICKUP" : "DESTINATION";
+        boolean recompute = ride.getEtaMinutes() == null || ride.getEtaComputedAt() == null
+            || ride.getEtaLat() == null || ride.getEtaLon() == null || !target.equals(ride.getEtaTarget());
+        if (!recompute) {
+            Instant lastStatusChange = java.util.stream.Stream.of(ride.getStartedAt(), ride.getArrivedAt(), ride.getPickedUpAt())
+                .filter(java.util.Objects::nonNull).max(Instant::compareTo).orElse(null);
+            boolean statusChanged = lastStatusChange != null && lastStatusChange.isAfter(ride.getEtaComputedAt());
+            boolean elapsed = Duration.between(ride.getEtaComputedAt(), now).compareTo(ETA_MIN_INTERVAL) > 0;
+            boolean moved = Geo.haversineMeters(ride.getEtaLat(), ride.getEtaLon(), lat, lon) > ETA_MIN_MOVE_METERS;
+            recompute = statusChanged || (elapsed && moved);
+        }
+        return recompute ? target : null;
     }
 
     /** Once-only guard (ride_notifications_sent): true when this call recorded the notification. */
@@ -691,16 +783,23 @@ public class RideService {
     }
 
     @Transactional
-    public String createShareToken(Long rideId, String baseUrl) {
+    public ShareLinkResponse createShare(Long rideId) {
         UserEntity passenger = currentUserService.requireUser();
         RideEntity ride = mustFindRide(rideId, passenger);
         requirePassenger(ride, passenger);
-        String token = UUID.randomUUID().toString().replace("-", "");
-        ride.setShareToken(token);
-        ride.setShareExpiresAt(clock.instant().plusSeconds(60L * 60L * 8L));
-        rideRepository.save(ride);
+        if (!SHAREABLE.contains(ride.getStatus()) || !isUnexpired(ride, clock.instant())) {
+            throw AppException.conflict("SHARE_NOT_ALLOWED", "Resan kan inte delas just nu");
+        }
+        if (ride.getShareToken() == null || ride.getShareRevokedAt() != null) {
+            byte[] raw = new byte[16];
+            SHARE_RANDOM.nextBytes(raw);
+            ride.setShareToken(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(raw));
+            ride.setShareRevokedAt(null);
+            rideRepository.save(ride);
+        }
         events.record(ride, passenger.getId(), RideEventRecorder.SHARE_CREATED);
-        return baseUrl + "/api/rides/share/" + token;
+        return new ShareLinkResponse(ride.getShareToken(), RideResponseFactory.shareExpiry(ride),
+            publicBaseUrl + "/dela/" + ride.getShareToken());
     }
 
     @Transactional
@@ -708,25 +807,38 @@ public class RideService {
         UserEntity passenger = currentUserService.requireUser();
         RideEntity ride = mustFindRide(rideId, passenger);
         requirePassenger(ride, passenger);
-        ride.setShareToken(null);
-        ride.setShareExpiresAt(null);
-        rideRepository.save(ride);
+        if (ride.getShareToken() != null && ride.getShareRevokedAt() == null) {
+            ride.setShareRevokedAt(clock.instant());
+            rideRepository.save(ride);
+        }
         events.record(ride, passenger.getId(), RideEventRecorder.SHARE_REVOKED);
     }
 
-    public RideResponse byShareToken(String token) {
+    /** Anonymous view for the public share page: 404 unknown, 410 revoked or ended more than 1 h ago. */
+    @Transactional
+    public PublicShareResponse publicShare(String token) {
         RideEntity ride = rideRepository.findByShareToken(token)
             .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Share link not found"));
-        if (ride.getShareExpiresAt() == null || ride.getShareExpiresAt().isBefore(clock.instant())) {
+        Instant now = clock.instant();
+        if (ride.getShareRevokedAt() != null || !isUnexpired(ride, now)) {
             throw new AppException(HttpStatus.GONE, "Share link expired");
         }
-        // Anonymous viewers may follow any share link; an authenticated user must be in the ride's world.
-        UserEntity viewer = currentUserService.currentUserOrNull();
-        if (viewer != null) {
-            policy.requireSameWorld(viewer, ride);
-        }
-        // Share links are always rendered anonymously: no phones, passenger name, note or actions.
-        return responses.toResponse(ride, null, null);
+        UserEntity driver = ride.getAcceptedByDriver();
+        return new PublicShareResponse(
+            PushArgs.firstName(ride.getPassenger().getFullName()),
+            driver == null ? null : PushArgs.firstName(driver.getFullName()),
+            ride.getStatus().name(), "ride.status." + ride.getStatus().name(),
+            ride.getScheduledAt(),
+            new SharePlace(ride.getFromLat(), ride.getFromLon(), ride.getFromAddress()),
+            new SharePlace(ride.getToLat(), ride.getToLon(), ride.getToAddress()),
+            !RideResponseFactory.positionVisible(ride) || ride.getLastDriverLat() == null || ride.getLastDriverLon() == null ? null
+                : new ShareDriver(ride.getLastDriverLat(), ride.getLastDriverLon(), ride.getLastLocationAccuracyM(), ride.getLastLocationAt()),
+            ride.getEtaMinutes(), ride.getEtaTarget(), RideResponseFactory.isLocationStale(ride, now));
+    }
+
+    private static boolean isUnexpired(RideEntity ride, Instant now) {
+        Instant exp = RideResponseFactory.shareExpiry(ride);
+        return exp == null || now.isBefore(exp);
     }
 
     @Transactional

@@ -297,11 +297,10 @@ class RideEditAndMessagesIntegrationTest extends M1TestSupport {
             assertThat(a.get("driverPhone").isNull()).isTrue();
         }
         String token = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
-        JsonNode shared = call("GET", "/api/rides/share/" + token, null, null, 200).body();
+        JsonNode shared = call("GET", "/api/public/share/" + token, null, null, 200, "X-Forwarded-For", "10.9.9.1").body();
         assertThat(shared.toString()).doesNotContain("070-");
-        assertThat(shared.get("passengerName").isNull()).isTrue();
-        assertThat(shared.get("pickupNote").isNull()).isTrue();
-        assertThat(shared.get("availableActions")).isEmpty();
+        assertThat(shared.has("pickupNote")).isFalse();
+        assertThat(shared.has("availableActions")).isFalse();
         // the other offered driver is shut out with a stale code, not a leak
         assertConflict(call("GET", "/api/rides/" + id, d2, null, null), "RIDE_TAKEN");
 

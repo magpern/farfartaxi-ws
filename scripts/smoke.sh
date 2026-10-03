@@ -159,6 +159,32 @@ req POST "/api/driver/rides/$RID/arrive" "$DTOKEN"; expect "arrive" 200
 [ "$(jget 'd["status"]')" = "ARRIVED" ] || fail "arrive did not return ARRIVED"
 req POST "/api/driver/rides/$RID/location" "$DTOKEN" '{"lat":59.335,"lon":18.08}'
 case "$CODE" in 200|204) ;; *) fail "location: expected 200/204, got $CODE";; esac
+# M7: live tracking + share link (ride is ARRIVED = active). Accuracy is accepted and echoed.
+req POST "/api/driver/rides/$RID/location" "$DTOKEN" '{"lat":59.336,"lon":18.081,"accuracy":15}'
+case "$CODE" in 200|204) ;; *) fail "location with accuracy: expected 200/204, got $CODE";; esac
+req GET "/api/rides/$RID" "$PTOKEN"; expect "passenger ride after location" 200
+[ -n "$(jget 'd.get("lastLocationAt") or ""')" ] || fail "ride has no lastLocationAt after a location post"
+[ "$(jget 'd.get("locationStale")')" = "False" ] || fail "fresh position flagged locationStale"
+ok "live position stored (not stale)"
+req POST "/api/rides/$RID/share" "$PTOKEN"; expect "create share" 200
+STOKEN=$(printf '%s' "$BODY_OUT" | python3 -c 'import sys,json,re; u=json.load(sys.stdin)["url"]; m=re.search(r"/dela/([A-Za-z0-9_-]+)$", u); print(m.group(1) if m else "")')
+[ -n "$STOKEN" ] || fail "share response has no /dela/<token> url"
+req GET "/api/public/share/$STOKEN" ; expect "public share (no auth)" 200
+printf '%s' "$BODY_OUT" | python3 -c '
+import sys,json,re
+raw=sys.stdin.read(); d=json.loads(raw)
+bad=[k for k in re.findall(r"\"([^\"]*)\"\s*:", raw) if re.search(r"phone|email|note|id$", k, re.I)]
+if bad or "+46" in raw: print("leaky share fields: %s" % bad, file=sys.stderr); sys.exit(1)
+if not (d.get("passengerFirstName") and d.get("pickup") and d.get("destination")): sys.exit(1)' \
+  || fail "public share payload leaks private fields or lacks required fields"
+ok "public share 200 without auth, no phone/email/note/id fields"
+req DELETE "/api/rides/$RID/share" "$PTOKEN"
+case "$CODE" in 200|204) ;; *) fail "revoke share: expected 200/204, got $CODE";; esac
+req GET "/api/public/share/$STOKEN" ; expect "public share after revoke" 410
+ok "revoked share link returns 410"
+req GET "/api/public/share/not-a-real-token-0000000000000000" ; expect "unknown share token" 404
+ok "unknown share token returns 404"
+
 req POST "/api/driver/rides/$RID/pickup" "$DTOKEN"; expect "pickup" 200
 [ "$(jget 'd["status"]')" = "PICKED_UP" ] || fail "pickup did not return PICKED_UP"
 req POST "/api/driver/rides/$RID/complete" "$DTOKEN"; expect "complete" 200
@@ -182,5 +208,23 @@ printf '%s' "$BODY_OUT" | RID="$RID" python3 -c 'import sys,json,os; sys.exit(0 
 ok "driver history contains ride $RID"
 req GET /api/rides/active "$PTOKEN"; expect "passenger active ride after completion" 204
 ok "no active ride after completion"
+
+# M7: returning an ongoing ride clears tracking -> the passenger's ride exposes no driver position (second ride).
+BOOK2=$(python3 -c 'import datetime as d,json; print(json.dumps({"kind":"SCHEDULED","fromAddress":"Smoke Start 1, Test","fromLat":59.3293,"fromLon":18.0686,"toAddress":"Smoke Slut 2, Test","toLat":59.34,"toLon":18.09,"scheduledAt":(d.datetime.now(d.timezone.utc)+d.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")}))')
+req POST /api/rides "$PTOKEN" "$BOOK2" "smoke-r-$(python3 -c 'import uuid; print(uuid.uuid4())')"; expect "book ride 2" 200
+RID2=$(jget 'd["id"]')
+[ -n "$RID2" ] || fail "book ride 2 returned no id"
+req POST "/api/driver/rides/$RID2/accept" "$DTOKEN" '{"confirmProximity":true}'; expect "accept ride 2" 200
+req POST "/api/driver/rides/$RID2/start" "$DTOKEN"; expect "start ride 2" 200
+req POST "/api/driver/rides/$RID2/location" "$DTOKEN" '{"lat":59.331,"lon":18.07,"accuracy":10}'
+case "$CODE" in 200|204) ;; *) fail "location ride 2: expected 200/204, got $CODE";; esac
+req GET "/api/rides/$RID2" "$PTOKEN"; expect "passenger ride 2 while en route" 200
+[ "$(jget 'd.get("lastDriverLat") is not None')" = "True" ] || fail "en-route ride exposes no driver position"
+req POST "/api/driver/rides/$RID2/return" "$DTOKEN" '{"reason":"smoke"}'; expect "return ride 2" 200
+req GET "/api/rides/$RID2" "$PTOKEN"; expect "passenger ride 2 after return" 200
+[ "$(jget 'd.get("lastDriverLat") is None and d.get("lastDriverLon") is None and d.get("lastLocationAt") is None')" = "True" ] \
+  || fail "passenger ride still exposes a driver position after return"
+ok "no driver position on the passenger ride after return"
+req POST "/api/rides/$RID2/cancel" "$PTOKEN" '{"reason":"smoke cleanup","confirm":true}'; ok "ride 2 cleaned up (cancel -> HTTP $CODE)"
 
 echo "SMOKE PASS ($BASE, version=$VERSION)"

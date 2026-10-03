@@ -118,6 +118,29 @@ public class RideEntity {
     @Column(name = "eta_minutes")
     private Integer etaMinutes;
 
+    @Column(name = "last_location_accuracy_m")
+    private Double lastLocationAccuracyM;
+
+    /** PICKUP or DESTINATION: what {@link #etaMinutes} is measured to. */
+    @Column(name = "eta_target", length = 16)
+    private String etaTarget;
+
+    @Column(name = "eta_computed_at")
+    private Instant etaComputedAt;
+
+    /** Driver position used for the last ETA computation. */
+    @Column(name = "eta_lat")
+    private Double etaLat;
+
+    @Column(name = "eta_lon")
+    private Double etaLon;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "share_revoked_at")
+    private Instant shareRevokedAt;
+
     @Column(name = "share_token")
     private String shareToken;
 
@@ -345,4 +368,42 @@ public class RideEntity {
     public void setArrivedAt(Instant arrivedAt) { this.arrivedAt = arrivedAt; }
     public Instant getPickedUpAt() { return pickedUpAt; }
     public void setPickedUpAt(Instant pickedUpAt) { this.pickedUpAt = pickedUpAt; }
+    public Double getLastLocationAccuracyM() { return lastLocationAccuracyM; }
+    public void setLastLocationAccuracyM(Double v) { this.lastLocationAccuracyM = v; }
+    public String getEtaTarget() { return etaTarget; }
+    public void setEtaTarget(String etaTarget) { this.etaTarget = etaTarget; }
+    public Instant getEtaComputedAt() { return etaComputedAt; }
+    public void setEtaComputedAt(Instant etaComputedAt) { this.etaComputedAt = etaComputedAt; }
+    public Double getEtaLat() { return etaLat; }
+    public void setEtaLat(Double etaLat) { this.etaLat = etaLat; }
+    public Double getEtaLon() { return etaLon; }
+    public void setEtaLon(Double etaLon) { this.etaLon = etaLon; }
+    public Instant getCancelledAt() { return cancelledAt; }
+    public void setCancelledAt(Instant cancelledAt) { this.cancelledAt = cancelledAt; }
+    public Instant getShareRevokedAt() { return shareRevokedAt; }
+    public void setShareRevokedAt(Instant shareRevokedAt) { this.shareRevokedAt = shareRevokedAt; }
+
+    /** Drops every stored driver position / ETA field (driver change, return, retention). */
+    public void clearTracking() {
+        lastDriverLat = null;
+        lastDriverLon = null;
+        lastLocationAccuracyM = null;
+        lastLocationAt = null;
+        etaMinutes = null;
+        etaTarget = null;
+        etaComputedAt = null;
+        etaLat = null;
+        etaLon = null;
+    }
+
+    /** When the ride ended (COMPLETED: completed_at, CANCELLED: cancelled_at, falling back to updated_at); null while active. */
+    public Instant endedAt() {
+        if (status == RideStatus.COMPLETED) {
+            return completedAt != null ? completedAt : updatedAt;
+        }
+        if (status == RideStatus.CANCELLED) {
+            return cancelledAt != null ? cancelledAt : updatedAt;
+        }
+        return null;
+    }
 }

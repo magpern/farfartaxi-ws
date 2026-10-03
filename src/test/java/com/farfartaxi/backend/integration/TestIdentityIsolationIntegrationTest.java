@@ -235,16 +235,16 @@ class TestIdentityIsolationIntegrationTest {
         init();
         long testRide = book(testUser, null);
         String token = share(testRide, testUser);
-        send("GET", "/api/rides/share/" + token, null, null, 200);
-        send("GET", "/api/rides/share/" + token, testUser, null, 200);
-        send("GET", "/api/rides/share/" + token, realUser, null, 404);
-        send("GET", "/api/rides/share/" + token, adminToken, null, 404);
+        send("GET", "/api/public/share/" + token, null, null, 200);
+        // never exposes more than the anonymized view, whoever asks
+        send("GET", "/api/public/share/" + token, realUser, null, 200);
 
         long realRide = book(realUser, null);
         String realToken = share(realRide, realUser);
-        send("GET", "/api/rides/share/" + realToken, null, null, 200);
-        send("GET", "/api/rides/share/" + realToken, testUser, null, 404);
-        send("GET", "/api/rides/share/" + realToken, testDriver, null, 404);
+        send("GET", "/api/public/share/" + realToken, null, null, 200);
+        // creating/revoking a share across worlds stays hidden
+        send("POST", "/api/rides/" + testRide + "/share", realUser, null, 404);
+        send("DELETE", "/api/rides/" + realRide + "/share", testUser, null, 404);
     }
 
     // ---- cleanup ----
@@ -288,14 +288,14 @@ class TestIdentityIsolationIntegrationTest {
         send("POST", "/api/driver/rides/" + id + "/arrive", adminToken, null, 200);
         send("POST", "/api/driver/rides/" + id + "/pickup", adminToken, null, 200);
         send("POST", "/api/driver/rides/" + id + "/location", adminToken, Map.of("lat", 59.33, "lon", 18.07), 200);
-        send("POST", "/api/driver/rides/" + id + "/complete", adminToken, null, 200);
-        send("POST", "/api/rides/" + id + "/feedback", realUser, Map.of("stars", 5, "comment", "ok"), 200);
         share(id, realUser);
         send("DELETE", "/api/rides/" + id + "/share", realUser, null, 200);
+        send("POST", "/api/driver/rides/" + id + "/complete", adminToken, null, 200);
+        send("POST", "/api/rides/" + id + "/feedback", realUser, Map.of("stars", 5, "comment", "ok"), 200);
 
         List<RideEventEntity> evs = eventRepository.findByRideIdOrderByIdAsc(id);
         assertThat(evs.stream().map(RideEventEntity::getEventType).toList()).containsExactly(
-            "BOOKED", "ACCEPTED", "RETURNED", "ACCEPTED", "STARTED", "ARRIVED", "PICKED_UP", "COMPLETED", "FEEDBACK", "SHARE_CREATED", "SHARE_REVOKED");
+            "BOOKED", "ACCEPTED", "RETURNED", "ACCEPTED", "STARTED", "ARRIVED", "PICKED_UP", "SHARE_CREATED", "SHARE_REVOKED", "COMPLETED", "FEEDBACK");
         assertThat(evs.get(0).getActorId()).isEqualTo(realUserId);
         assertThat(evs.get(1).getActorId()).isEqualTo(realDriverId);
         assertThat(evs.get(2).getEventType()).isEqualTo("RETURNED");

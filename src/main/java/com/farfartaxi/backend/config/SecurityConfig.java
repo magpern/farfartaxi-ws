@@ -2,7 +2,6 @@ package com.farfartaxi.backend.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.Customizer;
@@ -40,7 +39,6 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**", "/actuator/health/**", "/actuator/info", "/actuator/prometheus", "/api/public/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/rides/share/**").permitAll()
                 .anyRequest().hasAnyRole("USER", "DRIVER", "ADMIN"))
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(authenticationEntryPoint)

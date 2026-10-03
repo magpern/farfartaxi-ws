@@ -110,20 +110,13 @@ public class RideController {
     }
 
     @PostMapping("/{rideId}/share")
-    public ShareLinkResponse share(@PathVariable Long rideId, jakarta.servlet.http.HttpServletRequest request) {
-        String base = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
-        String url = rideService.createShareToken(rideId, base);
-        return new ShareLinkResponse(url.substring(url.lastIndexOf('/') + 1), Instant.now().plusSeconds(60L * 60L * 8L), url);
+    public ShareLinkResponse share(@PathVariable Long rideId) {
+        return rideService.createShare(rideId);
     }
 
     @DeleteMapping("/{rideId}/share")
     public void revokeShare(@PathVariable Long rideId) {
         rideService.revokeShareToken(rideId);
-    }
-
-    @GetMapping("/share/{token}")
-    public RideResponse byShare(@PathVariable String token) {
-        return rideService.byShareToken(token);
     }
 
     @PostMapping("/{rideId}/feedback")
