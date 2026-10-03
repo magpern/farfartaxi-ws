@@ -826,6 +826,11 @@ public class RideService {
     /** Maps "this ride is no longer what the caller expected" to a coded 409. */
     private AppException staleConflict(RideEntity ride, Optional<RideOfferEntity> offer) {
         RideStatus st = ride.getStatus();
+        // A withdrawn offer on a ride we still see as REQUESTED means another driver's accept (or a cancel) just
+        // committed: read the committed status so the loser gets the precise reason (RIDE_TAKEN / RIDE_CANCELLED).
+        if (st == RideStatus.REQUESTED && offer.map(o -> o.getStatus() == OfferStatus.WITHDRAWN).orElse(false)) {
+            st = rideRepository.findCommittedStatus(ride.getId()).map(RideStatus::valueOf).orElse(st);
+        }
         if (st == RideStatus.CANCELLED) {
             return AppException.conflict("RIDE_CANCELLED", "Resan är avbokad");
         }

@@ -12,6 +12,10 @@ import org.springframework.data.jpa.repository.Query;
 
 /** Every listing is filtered by {@code test} (the caller's world); see RideAccessPolicy. */
 public interface RideRepository extends JpaRepository<RideEntity, Long> {
+    /** Reads the committed status straight from the database (bypasses the persistence-context copy). */
+    @org.springframework.data.jpa.repository.Query(value = "SELECT status FROM rides WHERE id = :id", nativeQuery = true)
+    Optional<String> findCommittedStatus(@org.springframework.data.repository.query.Param("id") Long id);
+
     RideEntity save(RideEntity ride);
     Optional<RideEntity> findById(Long id);
     void deleteById(Long id);
