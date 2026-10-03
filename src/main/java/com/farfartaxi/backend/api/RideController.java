@@ -2,10 +2,15 @@ package com.farfartaxi.backend.api;
 
 import com.farfartaxi.backend.api.dto.RideDtos.BookRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.CancelRideRequest;
+import com.farfartaxi.backend.api.dto.RideDtos.EditRideRequest;
+import com.farfartaxi.backend.api.dto.RideDtos.MessageResponse;
+import com.farfartaxi.backend.api.dto.RideDtos.PostMessageRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.RideResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.ShareLinkResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.SubmitFeedbackRequest;
 import com.farfartaxi.backend.service.CurrentUserService;
+import com.farfartaxi.backend.service.AppException;
+import com.farfartaxi.backend.service.RideMessageService;
 import com.farfartaxi.backend.service.RideRealtimeService;
 import com.farfartaxi.backend.service.RideService;
 import jakarta.validation.Valid;
@@ -14,6 +19,8 @@ import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,16 +34,50 @@ public class RideController {
     private final RideService rideService;
     private final RideRealtimeService realtimeService;
     private final CurrentUserService currentUserService;
+    private final RideMessageService messageService;
 
-    public RideController(RideService rideService, RideRealtimeService realtimeService, CurrentUserService currentUserService) {
+    public RideController(RideService rideService, RideRealtimeService realtimeService, CurrentUserService currentUserService,
+                          RideMessageService messageService) {
+        this.messageService = messageService;
         this.rideService = rideService;
         this.realtimeService = realtimeService;
         this.currentUserService = currentUserService;
     }
 
     @PostMapping
-    public RideResponse book(@Valid @RequestBody BookRideRequest request) {
-        return rideService.book(request);
+    public RideResponse book(@Valid @RequestBody BookRideRequest request,
+                             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        try {
+            return rideService.book(request, idempotencyKey);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // two concurrent bookings with the same key: the loser returns the winner's ride
+            Long passengerId = request.passengerUserId() != null ? request.passengerUserId() : currentUserService.requireUser().getId();
+            if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+                return rideService.findByIdempotencyKey(passengerId, idempotencyKey)
+                    .orElseThrow(() -> new AppException(org.springframework.http.HttpStatus.CONFLICT, "RIDE_CHANGED", "Booking conflict, retry"));
+            }
+            throw e;
+        }
+    }
+
+    @PatchMapping("/{rideId}")
+    public RideResponse edit(@PathVariable Long rideId, @Valid @RequestBody EditRideRequest request) {
+        return rideService.editRide(rideId, request);
+    }
+
+    @PostMapping("/{rideId}/keep-waiting")
+    public RideResponse keepWaiting(@PathVariable Long rideId) {
+        return rideService.keepWaiting(rideId);
+    }
+
+    @GetMapping("/{rideId}/messages")
+    public List<MessageResponse> messages(@PathVariable Long rideId) {
+        return messageService.list(rideId);
+    }
+
+    @PostMapping("/{rideId}/messages")
+    public MessageResponse postMessage(@PathVariable Long rideId, @Valid @RequestBody PostMessageRequest request) {
+        return messageService.post(rideId, request.code());
     }
 
     @GetMapping("/my")
@@ -52,7 +93,8 @@ public class RideController {
     @PostMapping("/{rideId}/cancel")
     public RideResponse cancel(@PathVariable Long rideId, @RequestBody(required = false) CancelRideRequest request) {
         String reason = request == null ? null : request.reason();
-        return rideService.cancelRide(rideId, reason);
+        boolean confirm = request != null && Boolean.TRUE.equals(request.confirm());
+        return rideService.cancelRide(rideId, reason, confirm);
     }
 
     @DeleteMapping("/{rideId}")

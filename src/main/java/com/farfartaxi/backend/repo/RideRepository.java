@@ -24,6 +24,12 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
 
     List<RideEntity> findByAcceptedByDriver_IdAndTest(Long driverId, boolean test);
 
+    List<RideEntity> findByStatus(RideStatus status);
+
+    List<RideEntity> findByPassengerIdAndTestOrderByScheduledAtAsc(Long passengerId, boolean test);
+
+    Optional<RideEntity> findByPassengerIdAndClientRequestId(Long passengerId, String clientRequestId);
+
     Optional<RideEntity> findByShareToken(String shareToken);
 
     @Modifying

@@ -17,9 +17,17 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(AppException.class)
-    public ResponseEntity<Map<String, String>> onAppException(AppException ex, HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> onAppException(AppException ex, HttpServletRequest request) {
         log.warn("API error {} {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getStatus().value(), ex.getMessage());
-        return ResponseEntity.status(ex.getStatus()).body(Map.of("error", ex.getMessage()));
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("error", ex.getMessage());
+        if (ex.getCode() != null) {
+            body.put("code", ex.getCode());
+        }
+        if (ex.getDetails() != null) {
+            body.putAll(ex.getDetails());
+        }
+        return ResponseEntity.status(ex.getStatus()).body(body);
     }
 
     /** Method-security denials (@PreAuthorize) must be 403, not the generic 500 below. */
@@ -37,12 +45,36 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", message));
     }
 
-    /** Lost-update protection (UserEntity @Version): the client may simply retry. */
-    @ExceptionHandler({org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+    /**
+     * Lost-update protection. Entity-aware: a conflict on a ride (RideEntity @Version) is a stale ride (RIDE_CHANGED),
+     * a conflict on a user keeps the generic retry message.
+     */
+    @ExceptionHandler({org.springframework.dao.ConcurrencyFailureException.class,
         jakarta.persistence.OptimisticLockException.class})
     public ResponseEntity<Map<String, String>> onOptimisticLock(Exception ex, HttpServletRequest request) {
         log.warn("Optimistic lock conflict {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+        if (isRideConflict(ex)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Resan har ändrats, ladda om", "code", "RIDE_CHANGED"));
+        }
         return ResponseEntity.status(409).body(Map.of("error", "Account was changed concurrently, please retry"));
+    }
+
+    /** True when the failed entity is a ride (also checks the message: some wrappers drop the class name). */
+    public static boolean isRideConflict(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof org.springframework.orm.ObjectOptimisticLockingFailureException o
+                && o.getPersistentClassName() != null && o.getPersistentClassName().endsWith("RideEntity")) {
+                return true;
+            }
+            String m = t.getMessage();
+            if (m != null && m.contains("RideEntity")) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
     }
 
     /** Framework errors that already carry an HTTP status (404 no resource, 405, 415, missing params...). */

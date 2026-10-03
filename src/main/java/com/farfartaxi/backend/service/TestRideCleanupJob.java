@@ -2,6 +2,9 @@ package com.farfartaxi.backend.service;
 
 import com.farfartaxi.backend.repo.RideEventRepository;
 import com.farfartaxi.backend.repo.RideFeedbackRepository;
+import com.farfartaxi.backend.repo.RideMessageRepository;
+import com.farfartaxi.backend.repo.RideNotificationSentRepository;
+import com.farfartaxi.backend.repo.RideOfferRepository;
 import com.farfartaxi.backend.repo.RideRepository;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
@@ -18,8 +21,16 @@ public class TestRideCleanupJob {
     private final RideEventRepository eventRepository;
     private final RideFeedbackRepository feedbackRepository;
 
+    private final RideOfferRepository offerRepository;
+    private final RideMessageRepository messageRepository;
+    private final RideNotificationSentRepository notificationRepository;
+
     public TestRideCleanupJob(RideRepository rideRepository, RideEventRepository eventRepository,
-                              RideFeedbackRepository feedbackRepository) {
+                              RideFeedbackRepository feedbackRepository, RideOfferRepository offerRepository,
+                              RideMessageRepository messageRepository, RideNotificationSentRepository notificationRepository) {
+        this.offerRepository = offerRepository;
+        this.messageRepository = messageRepository;
+        this.notificationRepository = notificationRepository;
         this.rideRepository = rideRepository;
         this.eventRepository = eventRepository;
         this.feedbackRepository = feedbackRepository;
@@ -30,6 +41,9 @@ public class TestRideCleanupJob {
     public int cleanup() {
         eventRepository.deleteForTestRides();
         feedbackRepository.deleteForTestRides();
+        offerRepository.deleteForTestRides();
+        messageRepository.deleteForTestRides();
+        notificationRepository.deleteForTestRides();
         int n = rideRepository.deleteAllTestRides();
         log.info("Nightly cleanup removed {} test rides", n);
         return n;

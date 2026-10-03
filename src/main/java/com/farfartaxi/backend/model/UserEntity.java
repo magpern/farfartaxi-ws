@@ -64,6 +64,17 @@ public class UserEntity {
     @Column(nullable = false)
     private boolean approved = false;
 
+    /** Driver toggle: affects NOW rides only. */
+    @Column(name = "driver_available_now", nullable = false)
+    private boolean driverAvailableNow = true;
+
+    /** Inclusive Europe/Stockholm dates during which no offers are made for rides scheduled in the period. */
+    @Column(name = "driver_away_from")
+    private java.time.LocalDate driverAwayFrom;
+
+    @Column(name = "driver_away_until")
+    private java.time.LocalDate driverAwayUntil;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -196,5 +207,17 @@ public class UserEntity {
 
     public void setTest(boolean test) {
         this.test = test;
+    }
+
+    public boolean isDriverAvailableNow() { return driverAvailableNow; }
+    public void setDriverAvailableNow(boolean v) { this.driverAvailableNow = v; }
+    public java.time.LocalDate getDriverAwayFrom() { return driverAwayFrom; }
+    public void setDriverAwayFrom(java.time.LocalDate d) { this.driverAwayFrom = d; }
+    public java.time.LocalDate getDriverAwayUntil() { return driverAwayUntil; }
+    public void setDriverAwayUntil(java.time.LocalDate d) { this.driverAwayUntil = d; }
+
+    public boolean isAwayOn(java.time.LocalDate date) {
+        return driverAwayFrom != null && driverAwayUntil != null
+            && !date.isBefore(driverAwayFrom) && !date.isAfter(driverAwayUntil);
     }
 }

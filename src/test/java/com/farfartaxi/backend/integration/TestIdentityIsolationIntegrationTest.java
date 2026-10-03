@@ -154,6 +154,12 @@ class TestIdentityIsolationIntegrationTest {
         send("GET", r + "/stream", passengerSide, null, 404);
         send("POST", r + "/cancel", passengerSide, Map.of("reason", "x"), 404);
         send("DELETE", r, passengerSide, null, 404);
+        send("PATCH", r, passengerSide, Map.of("pickupNote", "x"), 404);
+        send("POST", r + "/keep-waiting", passengerSide, null, 404);
+        send("GET", r + "/messages", passengerSide, null, 404);
+        send("POST", r + "/messages", passengerSide, Map.of("code", "PASSENGER_OUTSIDE"), 404);
+        send("GET", r + "/messages", driverSide, null, 404);
+        send("POST", r + "/messages", driverSide, Map.of("code", "DRIVER_HERE"), 404);
         send("POST", r + "/share", passengerSide, null, 404);
         send("DELETE", r + "/share", passengerSide, null, 404);
         send("POST", r + "/feedback", passengerSide, Map.of("stars", 5, "comment", "x"), 404);
@@ -163,14 +169,18 @@ class TestIdentityIsolationIntegrationTest {
         send("POST", d + "/accept", driverSide, null, 404);
         send("POST", d + "/refuse", driverSide, Map.of("comment", "no"), 404);
         send("POST", d + "/unaccept", driverSide, null, 404);
+        send("POST", d + "/decline", driverSide, Map.of("comment", "no"), 404);
+        send("POST", d + "/return", driverSide, Map.of("reason", "no"), 404);
         send("POST", d + "/start", driverSide, null, 404);
+        send("POST", d + "/arrive", driverSide, null, 404);
+        send("POST", d + "/pickup", driverSide, null, 404);
         send("POST", d + "/location", driverSide, Map.of("lat", 59.33, "lon", 18.07), 404);
         send("POST", d + "/complete", driverSide, null, 404);
     }
 
     private void assertStillPending(long rideId, String ownerToken) throws Exception {
         JsonNode ride = send("GET", "/api/rides/" + rideId, ownerToken, null, 200);
-        assertThat(ride.get("status").asText()).isEqualTo("PENDING_OPEN");
+        assertThat(ride.get("status").asText()).isEqualTo("REQUESTED");
         assertThat(ride.get("acceptedByDriverId").isNull()).isTrue();
     }
 
@@ -191,8 +201,8 @@ class TestIdentityIsolationIntegrationTest {
         // assigned + stats (deltas: other tests share the DB)
         long realBefore = send("GET", "/api/driver/stats", realDriver, null, 200).get("acceptedRides").asLong();
         long testBefore = send("GET", "/api/driver/stats", testDriver, null, 200).get("acceptedRides").asLong();
-        send("POST", "/api/driver/rides/" + realRide + "/accept", realDriver, null, 200);
-        send("POST", "/api/driver/rides/" + testRide + "/accept", testDriver, null, 200);
+        send("POST", "/api/driver/rides/" + realRide + "/accept", realDriver, Map.of("confirmProximity", true), 200);
+        send("POST", "/api/driver/rides/" + testRide + "/accept", testDriver, Map.of("confirmProximity", true), 200);
         assertThat(ids(send("GET", "/api/driver/rides/mine", realDriver, null, 200))).contains(realRide).doesNotContain(testRide);
         assertThat(ids(send("GET", "/api/driver/rides/mine", testDriver, null, 200))).contains(testRide).doesNotContain(realRide);
         assertThat(send("GET", "/api/driver/stats", realDriver, null, 200).get("acceptedRides").asLong()).isEqualTo(realBefore + 1);
@@ -245,8 +255,10 @@ class TestIdentityIsolationIntegrationTest {
         long realRide = book(realUser, null);
         long testRide = book(testUser, null);
         long doneTestRide = book(testUser, null);
-        send("POST", "/api/driver/rides/" + doneTestRide + "/accept", testDriver, null, 200);
+        send("POST", "/api/driver/rides/" + doneTestRide + "/accept", testDriver, Map.of("confirmProximity", true), 200);
         send("POST", "/api/driver/rides/" + doneTestRide + "/start", testDriver, null, 200);
+        send("POST", "/api/driver/rides/" + doneTestRide + "/arrive", testDriver, null, 200);
+        send("POST", "/api/driver/rides/" + doneTestRide + "/pickup", testDriver, null, 200);
         send("POST", "/api/driver/rides/" + doneTestRide + "/complete", testDriver, null, 200);
         send("POST", "/api/rides/" + doneTestRide + "/feedback", testUser, Map.of("stars", 4, "comment", "ok"), 200);
 
@@ -268,26 +280,30 @@ class TestIdentityIsolationIntegrationTest {
     void rideEventsRecordedForFullFlow() throws Exception {
         init();
         long id = book(realUser, null);
-        send("POST", "/api/driver/rides/" + id + "/accept", realDriver, null, 200);
+        send("POST", "/api/driver/rides/" + id + "/accept", realDriver, Map.of("confirmProximity", true), 200);
         send("POST", "/api/driver/rides/" + id + "/unaccept", realDriver, null, 200);
-        send("POST", "/api/driver/rides/" + id + "/accept", realDriver, null, 200);
-        send("POST", "/api/driver/rides/" + id + "/start", realDriver, null, 200);
-        send("POST", "/api/driver/rides/" + id + "/location", realDriver, Map.of("lat", 59.33, "lon", 18.07), 200);
-        send("POST", "/api/driver/rides/" + id + "/complete", realDriver, null, 200);
+        send("POST", "/api/driver/rides/" + id + "/accept", realDriver, null, 409); // returner's offer is WITHDRAWN
+        send("POST", "/api/driver/rides/" + id + "/accept", adminToken, Map.of("confirmProximity", true), 200); // admins drive in the real world
+        send("POST", "/api/driver/rides/" + id + "/start", adminToken, null, 200);
+        send("POST", "/api/driver/rides/" + id + "/arrive", adminToken, null, 200);
+        send("POST", "/api/driver/rides/" + id + "/pickup", adminToken, null, 200);
+        send("POST", "/api/driver/rides/" + id + "/location", adminToken, Map.of("lat", 59.33, "lon", 18.07), 200);
+        send("POST", "/api/driver/rides/" + id + "/complete", adminToken, null, 200);
         send("POST", "/api/rides/" + id + "/feedback", realUser, Map.of("stars", 5, "comment", "ok"), 200);
         share(id, realUser);
         send("DELETE", "/api/rides/" + id + "/share", realUser, null, 200);
 
         List<RideEventEntity> evs = eventRepository.findByRideIdOrderByIdAsc(id);
         assertThat(evs.stream().map(RideEventEntity::getEventType).toList()).containsExactly(
-            "BOOKED", "ACCEPTED", "UNACCEPTED", "ACCEPTED", "STARTED", "COMPLETED", "FEEDBACK", "SHARE_CREATED", "SHARE_REVOKED");
+            "BOOKED", "ACCEPTED", "RETURNED", "ACCEPTED", "STARTED", "ARRIVED", "PICKED_UP", "COMPLETED", "FEEDBACK", "SHARE_CREATED", "SHARE_REVOKED");
         assertThat(evs.get(0).getActorId()).isEqualTo(realUserId);
         assertThat(evs.get(1).getActorId()).isEqualTo(realDriverId);
+        assertThat(evs.get(2).getEventType()).isEqualTo("RETURNED");
 
         long refused = book(realUser, null);
         send("POST", "/api/driver/rides/" + refused + "/refuse", realDriver, Map.of("comment", "busy"), 200);
         List<RideEventEntity> r = eventRepository.findByRideIdOrderByIdAsc(refused);
-        assertThat(r.get(1).getEventType()).isEqualTo("REFUSED");
+        assertThat(r.get(1).getEventType()).isEqualTo("DECLINED");
         assertThat(r.get(1).getComment()).isEqualTo("busy");
 
         long cancelled = book(realUser, null);

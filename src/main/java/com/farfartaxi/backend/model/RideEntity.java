@@ -12,10 +12,12 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import java.time.Instant;
 
 @Entity
-@Table(name = "rides")
+@Table(name = "rides", uniqueConstraints = @UniqueConstraint(columnNames = {"passenger_id", "client_request_id"}))
 public class RideEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -23,6 +25,34 @@ public class RideEntity {
 
     @Column(name = "is_test", nullable = false)
     private boolean test;
+
+    /** Optimistic lock: two concurrent transitions (e.g. two accepts) cannot both win. */
+    @Version
+    @Column(nullable = false)
+    private long version;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private RideKind kind = RideKind.SCHEDULED;
+
+    @Column(name = "pickup_note")
+    private String pickupNote;
+
+    @Column(nullable = false)
+    private boolean urgent;
+
+    @Column(name = "client_request_id")
+    private String clientRequestId;
+
+    /** Start of the current waiting window (NOW rides: timeouts count from here; SCHEDULED: booking time). */
+    @Column(name = "requested_at")
+    private Instant requestedAt;
+
+    @Column(name = "arrived_at")
+    private Instant arrivedAt;
+
+    @Column(name = "picked_up_at")
+    private Instant pickedUpAt;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "passenger_id")
@@ -299,4 +329,20 @@ public class RideEntity {
     public void setTest(boolean test) {
         this.test = test;
     }
+
+    public long getVersion() { return version; }
+    public RideKind getKind() { return kind; }
+    public void setKind(RideKind kind) { this.kind = kind; }
+    public String getPickupNote() { return pickupNote; }
+    public void setPickupNote(String pickupNote) { this.pickupNote = pickupNote; }
+    public boolean isUrgent() { return urgent; }
+    public void setUrgent(boolean urgent) { this.urgent = urgent; }
+    public String getClientRequestId() { return clientRequestId; }
+    public void setClientRequestId(String clientRequestId) { this.clientRequestId = clientRequestId; }
+    public Instant getRequestedAt() { return requestedAt != null ? requestedAt : createdAt; }
+    public void setRequestedAt(Instant requestedAt) { this.requestedAt = requestedAt; }
+    public Instant getArrivedAt() { return arrivedAt; }
+    public void setArrivedAt(Instant arrivedAt) { this.arrivedAt = arrivedAt; }
+    public Instant getPickedUpAt() { return pickedUpAt; }
+    public void setPickedUpAt(Instant pickedUpAt) { this.pickedUpAt = pickedUpAt; }
 }
