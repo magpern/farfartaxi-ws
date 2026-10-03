@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 
 @Entity
@@ -18,6 +19,11 @@ public class UserEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /** Optimistic lock: stale saves (e.g. slow password change vs. concurrent Google link) must fail, not overwrite. */
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     @Column(nullable = false, unique = true)
     private String email;
@@ -175,5 +181,9 @@ public class UserEntity {
 
     public void setVehicleNote(String vehicleNote) {
         this.vehicleNote = vehicleNote;
+    }
+
+    public long getVersion() {
+        return version;
     }
 }

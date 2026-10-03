@@ -37,6 +37,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", message));
     }
 
+    /** Lost-update protection (UserEntity @Version): the client may simply retry. */
+    @ExceptionHandler({org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+        jakarta.persistence.OptimisticLockException.class})
+    public ResponseEntity<Map<String, String>> onOptimisticLock(Exception ex, HttpServletRequest request) {
+        log.warn("Optimistic lock conflict {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(409).body(Map.of("error", "Account was changed concurrently, please retry"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> onUnhandled(Exception ex, HttpServletRequest request) {
         log.error("Unhandled server error {} {}", request.getMethod(), request.getRequestURI(), ex);

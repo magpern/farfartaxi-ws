@@ -44,15 +44,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
                 }
-                if (user instanceof SecurityUser su) {
-                    Object cv = claims.get("cv");
-                    java.time.Instant changed = su.getCredentialsChangedAt();
-                    boolean ok = changed == null
-                        ? cv == null
-                        : cv instanceof Number n && n.longValue() == changed.toEpochMilli();
-                    if (!ok) {
-                        throw new IllegalStateException("Token does not match current credentials version");
-                    }
+                if (!(user instanceof SecurityUser su)) {
+                    throw new IllegalStateException("Unexpected principal type; failing closed");
+                }
+                Object cv = claims.get("cv");
+                java.time.Instant changed = su.getCredentialsChangedAt();
+                boolean ok = changed == null
+                    ? cv == null
+                    : cv instanceof Number n && n.longValue() == changed.toEpochMilli();
+                if (!ok) {
+                    throw new IllegalStateException("Token does not match current credentials version");
                 }
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     user, null, user.getAuthorities());

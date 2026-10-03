@@ -190,6 +190,39 @@ class ApprovalSecurityIntegrationTest {
     }
 
     @Test
+    void staleSaveAfterGoogleLinkFailsOptimisticallyAndKeepsGoogleState() throws Exception {
+        send("POST", "/api/auth/register", null, Map.of(
+            "email", "stale@test.local", "password", "Password123!", "fullName", "Attacker"), 200);
+        // Detached copy read before the Google link (what a slow set/change-password request would hold).
+        com.farfartaxi.backend.model.UserEntity stale = userRepository.findByEmailIgnoreCase("stale@test.local").orElseThrow();
+
+        when(googleIdTokenService.isConfigured()).thenReturn(true);
+        when(googleIdTokenService.verify("cred-s")).thenReturn(Optional.of(
+            new GoogleIdTokenService.GoogleProfile("sub-stale", "stale@test.local", "Victim", true)));
+        send("POST", "/api/auth/google", null, Map.of("credential", "cred-s"), 200);
+
+        stale.setPasswordHash("{bcrypt}attacker-hash");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> userRepository.save(stale))
+            .isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+
+        com.farfartaxi.backend.model.UserEntity db = userRepository.findByEmailIgnoreCase("stale@test.local").orElseThrow();
+        assertThat(db.getGoogleSub()).isEqualTo("sub-stale");
+        assertThat(db.getPasswordHash()).isNull();
+        assertThat(db.getVersion()).isGreaterThan(stale.getVersion());
+    }
+
+    @Test
+    void optimisticLockFailureMapsTo409() {
+        var handler = new com.farfartaxi.backend.config.GlobalExceptionHandler();
+        var req = new org.springframework.mock.web.MockHttpServletRequest("POST", "/api/auth/set-password");
+        var res = handler.onOptimisticLock(
+            new org.springframework.orm.ObjectOptimisticLockingFailureException(
+                com.farfartaxi.backend.model.UserEntity.class, 1L), req);
+        assertThat(res.getStatusCode().value()).isEqualTo(409);
+        assertThat(res.getBody()).containsEntry("error", "Account was changed concurrently, please retry");
+    }
+
+    @Test
     void changePasswordRevokesOldTokenAndReturnsWorkingNewOne() throws Exception {
         String adminToken = loginToken("admin@test.local", "Admin123!Test");
         String oldToken = approvedUserToken(adminToken, "changer@test.local");
