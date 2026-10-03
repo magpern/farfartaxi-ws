@@ -5,32 +5,14 @@ import { apiLogin, bearer, baseURL, bookRideApi, cancelAllMine, cancelRideApi, i
  * M5 gate: the driver completes a full ride in driving mode using ONLY the big step button
  * (Kör nu -> Jag är framme -> Hämtat upp -> Klar) and the Navigera / Ring buttons.
  * Request card: mini map + Ta resan / Kan inte. External maps are never reached (popups are aborted).
- * The test accounts have no phone numbers, so the ride responses are patched in the browser to carry one.
  * SHOTS_DIR (optional) saves screenshots there.
  */
 
 const PICKUP = '59.329300,18.068600'
 const DEST = '59.340000,18.090000'
-const PHONE = '070-123 45 67'
 
-/** Adds a passenger phone to every ride object the driver's browser receives. */
-async function injectPhone(ctx: BrowserContext) {
-  const patch = (o: unknown): unknown => {
-    if (Array.isArray(o)) return o.map(patch)
-    if (o && typeof o === 'object') {
-      const r = o as Record<string, unknown>
-      if ('fromLat' in r && 'status' in r) return { ...r, passengerPhone: '070-123 45 67' }
-      return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, patch(v)]))
-    }
-    return o
-  }
-  await ctx.route(/\/api\/(driver\/)?rides\//, async (route) => {
-    if (route.request().method() !== 'GET') return route.fallback()
-    const res = await route.fetch()
-    const ct = res.headers()['content-type'] ?? ''
-    if (!res.ok() || !ct.includes('json')) return route.fulfill({ response: res })
-    return route.fulfill({ response: res, json: patch(await res.json()) })
-  })
+/** External maps are never reached: popups to them are aborted. */
+async function blockMaps(ctx: BrowserContext) {
   await ctx.route(/^https:\/\/(www\.google\.com\/maps|maps\.apple\.com)\//, (route) => route.abort())
 }
 
@@ -59,7 +41,7 @@ test.describe('M5 driver workflow', () => {
     rideId = ride.id
 
     const ctx = await newUserContext(browser, testInfo.project, tag)
-    await injectPhone(ctx)
+    await blockMaps(ctx)
     const page = await ctx.newPage()
     const openMaps = async (link: ReturnType<Page['getByRole']>) => {
       const popup = ctx.waitForEvent('page')
@@ -109,14 +91,16 @@ test.describe('M5 driver workflow', () => {
       await expect(nav).toHaveAttribute('target', '_blank')
 
       // Ring is a plain tel: link.
-      await expect(page.getByRole('link', { name: /^Ring / })).toHaveAttribute('href', 'tel:0701234567')
-      await expect(page.getByRole('link', { name: /^Skicka SMS till / })).toHaveAttribute('href', /^sms:0701234567[?&]body=Jag%20%C3%A4r%20h%C3%A4r$/)
+      await expect(page.getByRole('link', { name: /^Ring / })).toHaveAttribute('href', 'tel:+46701740605')
+      await expect(page.getByRole('link', { name: /^Skicka SMS till / })).toHaveAttribute('href', /^sms:\+46701740605[?&]body=Jag%20%C3%A4r%20h%C3%A4r$/)
       await shot(page, `driving-en-route-${testInfo.project.name}`)
 
-      // Step 2: Jag är framme (navigate still targets the pickup).
+      // Step 2: Jag är framme .
       await page.getByRole('button', { name: 'Jag är framme' }).click()
       await expect(page.getByRole('button', { name: 'Hämtat upp' })).toBeVisible()
-      await expect(page.getByRole('link', { name: /^Navigera till / })).toHaveAttribute('href', new RegExp(`${PICKUP.replace('.', '\\.')}`))
+      // Navigate is hidden once you have arrived; Ring/SMS stay.
+      await expect(page.getByRole('link', { name: /^Navigera till / })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: /^Ring / })).toBeVisible()
 
       // Step 3: Hämtat upp -> navigate switches to the destination, no new question on iOS.
       await page.getByRole('button', { name: 'Hämtat upp' }).click()

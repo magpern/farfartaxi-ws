@@ -20,6 +20,9 @@ import org.springframework.stereotype.Component;
 public class TestAccountBootstrapConfig {
     public static final String PASSENGER_EMAIL = "test-passenger@farfartaxi.invalid";
     public static final String DRIVER_EMAIL = "test-driver@farfartaxi.invalid";
+    /** PTS-reserved fictitious Swedish mobile numbers. */
+    public static final String PASSENGER_PHONE = "+46701740605";
+    public static final String DRIVER_PHONE = "+46701740606";
     private static final Logger log = LoggerFactory.getLogger(TestAccountBootstrapConfig.class);
 
     private final UserRepository userRepository;
@@ -53,15 +56,16 @@ public class TestAccountBootstrapConfig {
             log.info("test accounts disabled: not configured");
             return;
         }
-        upsert(PASSENGER_EMAIL, "Test Passagerare", Role.USER, passengerPassword);
-        upsert(DRIVER_EMAIL, "Test Förare", Role.DRIVER, driverPassword);
+        upsert(PASSENGER_EMAIL, "Test Passagerare", Role.USER, PASSENGER_PHONE, passengerPassword);
+        upsert(DRIVER_EMAIL, "Test Förare", Role.DRIVER, DRIVER_PHONE, driverPassword);
     }
 
-    private void upsert(String email, String name, Role role, String password) {
+    private void upsert(String email, String name, Role role, String phone, String password) {
         UserEntity user = userRepository.findByEmailIgnoreCase(email).orElseGet(UserEntity::new);
         user.setEmail(email);
         user.setFullName(name);
         user.setRole(role);
+        user.setPhone(phone);
         user.setTest(true);
         user.setEnabled(true);
         user.setApproved(true);

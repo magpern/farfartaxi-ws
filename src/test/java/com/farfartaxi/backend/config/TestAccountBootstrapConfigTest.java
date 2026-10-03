@@ -50,10 +50,12 @@ class TestAccountBootstrapConfigTest {
     void configuredReEnablesAndEnsuresAccounts() {
         UserEntity p = existing(TestAccountBootstrapConfig.PASSENGER_EMAIL);
         p.setEnabled(false);
-        existing(TestAccountBootstrapConfig.DRIVER_EMAIL);
+        UserEntity d = existing(TestAccountBootstrapConfig.DRIVER_EMAIL);
         when(encoder.encode(any())).thenReturn("hash");
         new TestAccountBootstrapConfig(repo, encoder, "pw1", "pw2").bootstrap();
         assertThat(p.isEnabled()).isTrue();
         assertThat(p.isTest()).isTrue();
+        assertThat(p.getPhone()).isEqualTo("+46701740605");
+        assertThat(d.getPhone()).isEqualTo("+46701740606");
     }
 }
