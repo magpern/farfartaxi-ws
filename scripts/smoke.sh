@@ -62,6 +62,8 @@ VERSION=$(jget 'd["version"]'); COMMIT=$(jget 'd["commit"]')
 ok "version=$VERSION commit=$COMMIT"
 req GET /api/public/push-config ; expect "public health (/api/public/push-config)" 200
 ok "backend reachable via public endpoint"
+[ -n "$(jget 'd.get("publicKey") or ""')" ] || fail "push-config returned an empty publicKey (VAPID not configured)"
+ok "push-config has a publicKey"
 
 # 2. API golden flow
 PTOKEN=$(login "$PASSENGER_EMAIL" "$TEST_PASSENGER_PASSWORD") || exit 1
@@ -97,6 +99,22 @@ ok "saved place create/list/delete"
 req GET "/api/places/recent?limit=3" "$PTOKEN"; expect "recent places" 200
 printf '%s' "$BODY_OUT" | python3 -c 'import sys,json; sys.exit(0 if isinstance(json.load(sys.stdin), list) else 1)' || fail "recent places is not a JSON array"
 ok "recent places 200 ($(jget 'len(d)') items)"
+
+# M6: notification prefs round-trip (original values restored) and locale.
+req GET /api/me/notification-prefs "$PTOKEN"; expect "get notification prefs" 200
+ORIG_PREFS="$BODY_OUT"
+FLIPPED=$(printf '%s' "$ORIG_PREFS" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps({"rideRequests":not d["rideRequests"],"rideUpdates":not d["rideUpdates"],"reminders":not d["reminders"]}))') \
+  || fail "notification prefs response is not the expected JSON"
+req PUT /api/me/notification-prefs "$PTOKEN" "$FLIPPED"; expect "put notification prefs" 200
+req GET /api/me/notification-prefs "$PTOKEN"; expect "get notification prefs after put" 200
+printf '%s' "$BODY_OUT" | FLIPPED="$FLIPPED" python3 -c 'import sys,json,os; g=json.load(sys.stdin); w=json.loads(os.environ["FLIPPED"]); sys.exit(0 if all(g[k]==w[k] for k in w) else 1)' \
+  || fail "notification prefs did not round-trip"
+RESTORE=$(printf '%s' "$ORIG_PREFS" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps({k:d[k] for k in ("rideRequests","rideUpdates","reminders")}))')
+req PUT /api/me/notification-prefs "$PTOKEN" "$RESTORE"; expect "restore notification prefs" 200
+ok "notification-prefs round-trip (restored)"
+req PUT /api/me/locale "$PTOKEN" '{"locale":"sv"}'
+case "$CODE" in 200|204) ;; *) fail "PUT /api/me/locale: expected 200/204, got $CODE";; esac
+ok "locale set to sv"
 
 req GET /api/auth/me "$PTOKEN"; expect "passenger me" 200
 PID=$(jget 'd["id"]')
