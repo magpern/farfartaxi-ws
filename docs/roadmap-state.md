@@ -127,4 +127,3 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - M6/M7: M7 development started while M6's last production gate waited ~3 h for an external Cloudflare cache TTL; M7 was not merged or deployed until M6's gates passed (single integration stream preserved).
 - M8 (planned): Grafana reads Prometheus only (no Postgres datasource) because the DB port was deliberately closed in M0A; equivalent dashboards via Micrometer metrics.
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
-- None yet.
