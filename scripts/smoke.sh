@@ -101,6 +101,11 @@ if bad: print("foreign ride ids: %s" % bad, file=sys.stderr); sys.exit(1)' \
   || fail "test driver can see rides that are not the test passenger's (isolation broken)"
 ok "driver open-rides list contains only test-passenger rides"
 
+# M2: the booked ride is the passenger's active ride.
+req GET /api/rides/active "$PTOKEN"; expect "passenger active ride" 200
+[ "$(jget 'd["role"]')" = "PASSENGER" ] && [ "$(jget 'd["ride"]["id"]')" = "$RID" ] || fail "/api/rides/active did not return ride $RID for the passenger"
+ok "passenger active ride is $RID"
+
 req POST "/api/driver/rides/$RID/accept" "$DTOKEN" '{"confirmProximity":true}'; expect "accept" 200
 [ "$(jget 'd["status"]')" = "ACCEPTED" ] || fail "accept did not return ACCEPTED"
 req POST "/api/driver/rides/$RID/start" "$DTOKEN"; expect "start" 200
@@ -124,5 +129,13 @@ for h in true false; do
 done
 [ "$FOUND" = "COMPLETED" ] || fail "passenger does not see ride $RID as COMPLETED (saw '${FOUND:-nothing}')"
 ok "passenger sees ride COMPLETED"
+
+# M2: driver history lists the finished ride; nothing is active any more.
+req GET "/api/driver/rides/history?limit=20" "$DTOKEN"; expect "driver history" 200
+printf '%s' "$BODY_OUT" | RID="$RID" python3 -c 'import sys,json,os; sys.exit(0 if any(str(r["id"])==os.environ["RID"] for r in json.load(sys.stdin)) else 1)' \
+  || fail "driver history does not contain ride $RID"
+ok "driver history contains ride $RID"
+req GET /api/rides/active "$PTOKEN"; expect "passenger active ride after completion" 204
+ok "no active ride after completion"
 
 echo "SMOKE PASS ($BASE, version=$VERSION)"

@@ -1,24 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
-import type { Identities } from '../global-setup'
-
-const ids: Identities = JSON.parse(readFileSync(new URL('../.e2e-users.json', import.meta.url), 'utf8'))
-
-async function loginViaUi(page: Page, u: { email: string; password: string }) {
-  await page.goto('/login')
-  // When Google sign-in is configured (production), the password form sits behind a toggle button.
-  const passwordToggle = page.getByRole('button', { name: /E-post och lösenord/ })
-  const emailField = page.getByLabel('E-post')
-  await expect(passwordToggle.or(emailField).first()).toBeVisible()
-  if (await passwordToggle.isVisible()) await passwordToggle.click()
-  await emailField.fill(u.email)
-  await page.getByLabel('Lösenord').fill(u.password)
-  await page.getByRole('button', { name: 'Fortsätt' }).click()
-  await expect(page).toHaveURL(/\/app/)
-  // The PWA-install modal appears once after login and blocks the page; dismiss it.
-  const later = page.getByRole('button', { name: 'Inte nu' })
-  await later.waitFor({ state: 'visible', timeout: 5_000 }).then(() => later.click(), () => {})
-}
+import { ids, loginViaUi } from '../helpers'
 
 const refreshFromPage = (page: Page) =>
   page.evaluate(async () => {
@@ -46,13 +27,14 @@ test('expired access token is refreshed silently via the cookie; logout revokes 
 
     // Still in the app, rides page rendered, and a real token is stored again.
     await expect(page).toHaveURL(/\/app\/resor/)
-    await expect(page.getByRole('heading', { name: 'Kommande resor' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Mina resor' })).toBeVisible()
     const token = await page.evaluate(() => JSON.parse(localStorage.getItem('farfartaxi-auth') ?? '{}').token as string)
     expect(token).not.toBe('expired.invalid.token')
     expect(token.split('.')).toHaveLength(3)
 
-    // Logout through the side menu revokes the refresh cookie.
-    await page.getByRole('button', { name: 'Meny' }).click()
+    // Logout lives under the "Mer" tab and revokes the refresh cookie.
+    await page.getByRole('link', { name: 'Mer' }).click()
+    await expect(page).toHaveURL(/\/app\/mer/)
     const loggedOut = page.waitForResponse(
       (r) => r.url().includes('/api/auth/logout') && r.request().method() === 'POST'
     )
