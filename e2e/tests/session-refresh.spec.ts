@@ -46,7 +46,7 @@ test('expired access token is refreshed silently via the cookie; logout revokes 
 
     // Still in the app, rides page rendered, and a real token is stored again.
     await expect(page).toHaveURL(/\/app\/resor/)
-    await expect(page.getByText('Kommande resor')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Kommande resor' })).toBeVisible()
     const token = await page.evaluate(() => JSON.parse(localStorage.getItem('farfartaxi-auth') ?? '{}').token as string)
     expect(token).not.toBe('expired.invalid.token')
     expect(token.split('.')).toHaveLength(3)
