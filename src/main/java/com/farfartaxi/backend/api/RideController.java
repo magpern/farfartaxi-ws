@@ -84,6 +84,7 @@ public class RideController {
 
     @GetMapping("/{rideId}/stream")
     public SseEmitter stream(@PathVariable Long rideId) {
+        rideService.getMyRide(rideId); // participant/admin check; throws 403/404 otherwise
         Long userId = currentUserService.requireUser().getId();
         return realtimeService.subscribe(rideId, userId);
     }

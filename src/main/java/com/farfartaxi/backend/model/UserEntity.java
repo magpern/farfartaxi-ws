@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 
 @Entity
@@ -19,11 +20,19 @@ public class UserEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Optimistic lock: stale saves (e.g. slow password change vs. concurrent Google link) must fail, not overwrite. */
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @Column(nullable = false, unique = true)
     private String email;
 
     @Column(name = "password_hash")
     private String passwordHash;
+
+    @Column(name = "credentials_changed_at")
+    private Instant credentialsChangedAt;
 
     @Column(name = "google_sub")
     private String googleSub;
@@ -49,6 +58,9 @@ public class UserEntity {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column(nullable = false)
+    private boolean approved = false;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -69,6 +81,10 @@ public class UserEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
     }
 
     public String getEmail() {
@@ -127,6 +143,22 @@ public class UserEntity {
         this.enabled = enabled;
     }
 
+    public Instant getCredentialsChangedAt() {
+        return credentialsChangedAt;
+    }
+
+    public void setCredentialsChangedAt(Instant credentialsChangedAt) {
+        this.credentialsChangedAt = credentialsChangedAt;
+    }
+
+    public boolean isApproved() {
+        return approved;
+    }
+
+    public void setApproved(boolean approved) {
+        this.approved = approved;
+    }
+
     public String getPhone() {
         return phone;
     }
@@ -149,5 +181,9 @@ public class UserEntity {
 
     public void setVehicleNote(String vehicleNote) {
         this.vehicleNote = vehicleNote;
+    }
+
+    public long getVersion() {
+        return version;
     }
 }

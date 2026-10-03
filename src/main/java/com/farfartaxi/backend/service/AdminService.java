@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class AdminService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AdminService.class);
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
 
@@ -70,6 +71,16 @@ public class AdminService {
         if (request.vehicleNote() != null) {
             user.setVehicleNote(request.vehicleNote());
         }
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public UserEntity approve(Long userId) {
+        UserEntity actor = currentUserService.requireUser();
+        UserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+        user.setApproved(true);
+        log.info("Admin id={} approved user id={}", actor.getId(), user.getId());
         return userRepository.save(user);
     }
 

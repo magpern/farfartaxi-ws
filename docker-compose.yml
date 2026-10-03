@@ -10,10 +10,10 @@ services:
       SERVER_PORT: 8080
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/farfartaxi
       SPRING_DATASOURCE_USERNAME: taxi_mgmt
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
-      APP_JWT_SECRET: ${APP_JWT_SECRET:-replace-this-in-production-with-a-long-secret-value}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?required}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?required}
       FARFARTAXI_ADMIN_EMAIL: ${FARFARTAXI_ADMIN_EMAIL:-admin@farfartaxi.local}
-      FARFARTAXI_ADMIN_PASSWORD: ${FARFARTAXI_ADMIN_PASSWORD:-ChangeMeNow123!}
+      FARFARTAXI_ADMIN_PASSWORD: ${FARFARTAXI_ADMIN_PASSWORD:?required}
       FARFARTAXI_ADMIN_NAME: ${FARFARTAXI_ADMIN_NAME:-Farfar Admin}
       APP_ETA_DEFAULT_KMH: ${APP_ETA_DEFAULT_KMH:-35}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
@@ -43,7 +43,7 @@ services:
     environment:
       POSTGRES_DB: farfartaxi
       POSTGRES_USER: taxi_mgmt
-      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?required}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taxi_mgmt -d farfartaxi"]
       interval: 10s
@@ -52,7 +52,7 @@ services:
     volumes:
       - farfartaxi_pg_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
 volumes:
   farfartaxi_pg_data:

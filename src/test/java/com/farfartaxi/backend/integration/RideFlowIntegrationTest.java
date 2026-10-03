@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
     "spring.datasource.password=",
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.flyway.enabled=false",
-    "app.jwt.secret=integration-test-secret-key-012345678901234567890123",
+    "app.jwt.secret=test-only-integration-secret-key-012345678901234567890123",
     "app.admin.email=admin@test.local",
     "app.admin.password=Admin123!Test",
     "app.admin.name=Admin Test"
@@ -126,6 +126,9 @@ class RideFlowIntegrationTest {
             "password", password,
             "fullName", fullName
         ), 200);
+        // New accounts are pending; approve so the flow tests can use them.
+        String adminToken = login("admin@test.local", "Admin123!Test");
+        postWithAuth("/api/admin/users/" + getUserIdByEmail(adminToken, email) + "/approve", adminToken, null, 200);
     }
 
     private String login(String email, String password) throws Exception {

@@ -41,7 +41,8 @@ public final class AuthDtos {
         String role,
         /** Only meaningful for accounts with a local password (not Google-only). */
         boolean mustChangePassword,
-        boolean hasLocalPassword
+        boolean hasLocalPassword,
+        boolean approved
     ) {
     }
 }

@@ -14,7 +14,7 @@ public class UserLookupService {
     }
 
     public List<BookingUserOption> listEnabledForBooking() {
-        return userRepository.findByEnabledTrueOrderByFullNameAsc().stream()
+        return userRepository.findByEnabledTrueAndApprovedTrueOrderByFullNameAsc().stream()
             .map(u -> new BookingUserOption(u.getId(), u.getFullName(), u.getEmail()))
             .toList();
     }
