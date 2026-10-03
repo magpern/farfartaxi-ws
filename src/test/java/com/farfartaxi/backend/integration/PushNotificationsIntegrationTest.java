@@ -496,4 +496,84 @@ class PushNotificationsIntegrationTest extends M1TestSupport {
         assertThat(cancelled.get("title").asText()).isEqualTo("Resa avbokad");
         assertThat(cancelled.get("body").asText()).isEqualTo("Lisa har avbokat resan");
     }
+
+    // ------------------------------------------------------------------ review fixes
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+    @Autowired com.farfartaxi.backend.service.NotificationMarker marker;
+
+    @Test
+    void rolledBackTransactionSendsNoPush() throws Exception {
+        Sub sub = subscribe(d1);
+        var tx = new org.springframework.transaction.support.TransactionTemplate(txManager);
+        try {
+            tx.executeWithoutResult(status -> {
+                pushService.send(d1Id, com.farfartaxi.backend.service.PushCategory.RIDE_REQUESTS, "NEW_RIDE", 1L,
+                    "/app/forare", "ride.repush", List.of("x"));
+                throw new IllegalStateException("boom after publishing");
+            });
+        } catch (IllegalStateException expected) {
+            // rolled back
+        }
+        assertThat(received(sub)).isEmpty();
+    }
+
+    @Test
+    void vapidJwtCarriesAudienceShortExpiryAndConfiguredSubject() throws Exception {
+        Sub sub = subscribe(d1);
+        pushService.send(d1Id, com.farfartaxi.backend.service.PushCategory.RIDE_REQUESTS, "NEW_RIDE", 1L,
+            "/app/forare", "ride.repush", List.of("x"));
+        received(sub);
+        Captured c = CAPTURED.stream().filter(x -> x.path().equals(sub.path)).findFirst().orElseThrow();
+        var m = java.util.regex.Pattern.compile("t=([^,\\s]+)").matcher(c.authorization());
+        assertThat(m.find()).isTrue();
+        String payload = m.group(1).split("\\.")[1];
+        JsonNode claims = om.readTree(Base64.getUrlDecoder().decode(payload));
+        assertThat(claims.get("aud").asText()).isEqualTo("http://127.0.0.1"); // web-push lib: scheme://host (real services are https:443)
+        assertThat(claims.get("sub").asText()).isEqualTo("https://farfartaxi.test");
+        long now = System.currentTimeMillis() / 1000;
+        assertThat(claims.get("exp").asLong()).isGreaterThan(now).isLessThanOrEqualTo(now + 24 * 3600);
+    }
+
+    @Test
+    void notificationPrefsRequireAllThreeBooleans() throws Exception {
+        call("PUT", "/api/me/notification-prefs", p1, Map.of("rideRequests", true, "rideUpdates", false), 400);
+        call("PUT", "/api/me/notification-prefs", p1, Map.of("rideRequests", true, "rideUpdates", false, "reminders", true), 200);
+    }
+
+    @Test
+    void onceOnlyMarkerIsAtomicUnderConcurrency() throws Exception {
+        long id = bookAt(at("2027-06-01", "10:00"));
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            var start = new java.util.concurrent.CountDownLatch(1);
+            List<java.util.concurrent.Future<Integer>> fs = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                fs.add(pool.submit(() -> {
+                    start.await();
+                    return marker.markOnce(id, "ETA_5MIN", java.time.Instant.now()) ? 1 : 0;
+                }));
+            }
+            start.countDown();
+            int inserted = 0;
+            for (var f : fs) {
+                inserted += f.get();
+            }
+            assertThat(inserted).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void returningARideResetsEtaAndArrivedMarkers() throws Exception {
+        long id = bookAt(at("2027-06-02", "10:00"));
+        acceptOk(d1, id);
+        drive(d1, id, "start");
+        marker.markOnce(id, "ETA_5MIN", java.time.Instant.now());
+        marker.markOnce(id, "ARRIVED", java.time.Instant.now());
+        assertThat(sentRepo.existsByRideIdAndKind(id, "ARRIVED")).isTrue();
+        call("POST", "/api/driver/rides/" + id + "/return", d1, Map.of("reason", "sjuk"), 200);
+        assertThat(sentRepo.existsByRideIdAndKind(id, "ETA_5MIN")).isFalse();
+        assertThat(sentRepo.existsByRideIdAndKind(id, "ARRIVED")).isFalse();
+    }
 }

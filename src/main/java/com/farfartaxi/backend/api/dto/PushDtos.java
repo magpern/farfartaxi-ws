@@ -1,6 +1,7 @@
 package com.farfartaxi.backend.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 public final class PushDtos {
     private PushDtos() {
@@ -20,6 +21,7 @@ public final class PushDtos {
     public record LocaleResponse(String locale) {
     }
 
-    public record NotificationPrefsDto(boolean rideRequests, boolean rideUpdates, boolean reminders) {
+    public record NotificationPrefsDto(
+        @NotNull Boolean rideRequests, @NotNull Boolean rideUpdates, @NotNull Boolean reminders) {
     }
 }

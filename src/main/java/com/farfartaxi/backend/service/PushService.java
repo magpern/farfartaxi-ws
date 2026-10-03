@@ -84,6 +84,10 @@ public class PushService {
             LOG.warn("Web Push disabled: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY not configured");
             return;
         }
+        if (subject.isEmpty() || subject.toLowerCase(java.util.Locale.ROOT).endsWith(".local")) {
+            LOG.warn("Web Push disabled: app.vapid.subject must be a real https:// or mailto: contact (not empty or *.local)");
+            return;
+        }
         try {
             if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
                 Security.addProvider(new BouncyCastleProvider());
@@ -205,7 +209,14 @@ public class PushService {
                 .ttl(TTL_SECONDS)
                 .urgency(Urgency.HIGH)
                 .build();
-            var response = sender.sendAsync(n).get(HTTP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            var future = sender.sendAsync(n);
+            org.apache.http.HttpResponse response;
+            try {
+                response = future.get(HTTP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException te) {
+                future.cancel(true); // closes the per-send HTTP client
+                throw te;
+            }
             int status = response.getStatusLine().getStatusCode();
             if (status >= 200 && status < 300) {
                 metrics.push("ok", kind);

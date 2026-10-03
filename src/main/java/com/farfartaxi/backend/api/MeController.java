@@ -32,7 +32,7 @@ public class MeController {
     }
 
     @PutMapping("/notification-prefs")
-    public NotificationPrefsDto putPrefs(@RequestBody NotificationPrefsDto request) {
+    public NotificationPrefsDto putPrefs(@Valid @RequestBody NotificationPrefsDto request) {
         return settings.put(request);
     }
 }

@@ -12,7 +12,6 @@ import com.farfartaxi.backend.model.RideEntity;
 import com.farfartaxi.backend.model.RideKind;
 import com.farfartaxi.backend.model.RideFeedbackEntity;
 import com.farfartaxi.backend.model.RideKind;
-import com.farfartaxi.backend.model.RideNotificationSentEntity;
 import com.farfartaxi.backend.model.RideOfferEntity;
 import com.farfartaxi.backend.model.RideStatus;
 import com.farfartaxi.backend.model.Role;
@@ -59,6 +58,7 @@ public class RideService {
     private final RideOfferRepository offerRepository;
     private final RideMessageRepository messageRepository;
     private final RideNotificationSentRepository notificationRepository;
+    private final NotificationMarker notificationMarker;
     private final RideAccessPolicy policy;
     private final RideEventRecorder events;
     private final RideStateMachine machine;
@@ -83,6 +83,7 @@ public class RideService {
         RideOfferRepository offerRepository,
         RideMessageRepository messageRepository,
         RideNotificationSentRepository notificationRepository,
+        NotificationMarker notificationMarker,
         RideStateMachine machine,
         RideOfferService offers,
         RideConflictChecker conflictChecker,
@@ -104,6 +105,7 @@ public class RideService {
         this.offerRepository = offerRepository;
         this.messageRepository = messageRepository;
         this.notificationRepository = notificationRepository;
+        this.notificationMarker = notificationMarker;
         this.machine = machine;
         this.offers = offers;
         this.conflictChecker = conflictChecker;
@@ -215,7 +217,7 @@ public class RideService {
         machine.transition(ride, RideStatus.CANCELLED, Actor.PASSENGER);
         Long driverId = ride.getAcceptedByDriver() != null ? ride.getAcceptedByDriver().getId() : null;
         if (st == RideStatus.REQUESTED) {
-            offers.pushToOpen(ride, PushCategory.RIDE_UPDATES, "RIDE_CANCELLED", "ride.cancelled",
+            offers.pushToOpen(ride, PushCategory.RIDE_REQUESTS, "RIDE_CANCELLED", "ride.cancelled",
                 java.util.List.of(PushArgs.firstName(ride.getPassenger().getFullName())));
         }
         offers.withdrawAll(ride);
@@ -300,7 +302,7 @@ public class RideService {
                 if (timeChanged) {
                     offers.syncForTimeChange(ride, false);
                 } else {
-                    offers.pushToOpen(ride, PushCategory.RIDE_UPDATES, "RIDE_EDITED", "ride.edited_open", PushArgs.ride(ride));
+                    offers.pushToOpen(ride, PushCategory.RIDE_REQUESTS, "RIDE_EDITED", "ride.edited_open", PushArgs.ride(ride));
                 }
             }
             case NO_DRIVER -> {
@@ -566,7 +568,8 @@ public class RideService {
         ride.setAcceptedByDriver(null);
         ride.setStartedAt(null);
         resetWaitWindow(ride);
-        notificationRepository.deleteByRideIdAndKind(rideId, RideTimerService.DRIVER_REMINDER_30M);
+        notificationRepository.deleteByRideIdAndKindIn(rideId,
+            java.util.List.of(RideTimerService.DRIVER_REMINDER_30M, "ETA_5MIN", "ARRIVED"));
         int open = offers.reofferAfterReturn(ride, driver.getId());
         ride = rideRepository.save(ride);
         events.record(ride, driver.getId(), RideEventRecorder.RETURNED, reason);
@@ -662,15 +665,7 @@ public class RideService {
 
     /** Once-only guard (ride_notifications_sent): true when this call recorded the notification. */
     private boolean markNotificationSent(Long rideId, String kind) {
-        if (notificationRepository.existsByRideIdAndKind(rideId, kind)) {
-            return false;
-        }
-        RideNotificationSentEntity n = new RideNotificationSentEntity();
-        n.setRideId(rideId);
-        n.setKind(kind);
-        n.setSentAt(clock.instant());
-        notificationRepository.save(n);
-        return true;
+        return notificationMarker.markOnce(rideId, kind, clock.instant());
     }
 
     // ------------------------------------------------------------------ feedback / sharing

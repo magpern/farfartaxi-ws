@@ -18,7 +18,7 @@ services:
       APP_ETA_DEFAULT_KMH: ${APP_ETA_DEFAULT_KMH:-35}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-https://farfartaxi.pernemark.se}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       # Host port only; nginx still talks to backend:8080 on the Docker network (no frontend change).

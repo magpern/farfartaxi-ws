@@ -25,7 +25,7 @@ services:
       APP_ETA_DEFAULT_KMH: ${APP_ETA_DEFAULT_KMH:-35}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-https://farfartaxi.pernemark.se}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       # Loopback only; the reverse proxy / frontend container reaches the backend on the Docker network.

@@ -308,7 +308,7 @@ public class RideOfferService {
                 reset(o, false);
                 toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "RIDE_REOFFERED", ride, rideKey("ride.reoffered", ride), PushArgs.ride(ride));
             } else if (o.getStatus().isOpen()) {
-                toDriver(d.getId(), PushCategory.RIDE_UPDATES, "RIDE_EDITED", ride, "ride.edited_open", PushArgs.ride(ride));
+                toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "RIDE_EDITED", ride, "ride.edited_open", PushArgs.ride(ride));
             }
         }
     }
