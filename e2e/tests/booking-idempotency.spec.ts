@@ -1,24 +1,7 @@
-import { test, expect, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
-import type { Identities } from '../global-setup'
+import { test, expect } from '@playwright/test'
+import { ids, loginViaUi } from '../helpers'
 
-const ids: Identities = JSON.parse(readFileSync(new URL('../.e2e-users.json', import.meta.url), 'utf8'))
-
-async function loginViaUi(page: Page, u: { email: string; password: string }) {
-  await page.goto('/login')
-  const passwordToggle = page.getByRole('button', { name: /E-post och lösenord/ })
-  const emailField = page.getByLabel('E-post')
-  await expect(passwordToggle.or(emailField).first()).toBeVisible()
-  if (await passwordToggle.isVisible()) await passwordToggle.click()
-  await emailField.fill(u.email)
-  await page.getByLabel('Lösenord').fill(u.password)
-  await page.getByRole('button', { name: 'Fortsätt' }).click()
-  await expect(page).toHaveURL(/\/app/)
-  const later = page.getByRole('button', { name: 'Inte nu' })
-  await later.waitFor({ state: 'visible', timeout: 5_000 }).then(() => later.click(), () => {})
-}
-
-test('double-tapping "Åka nu" creates exactly one ride', async ({ browser, request }, testInfo) => {
+test('double-tapping the booking confirmation creates exactly one ride', async ({ browser, request }, testInfo) => {
   const tag = `${Date.now().toString(36)}idem`
   const ctx = await browser.newContext({
     ...(testInfo.project.use as object),
@@ -83,9 +66,11 @@ test('double-tapping "Åka nu" creates exactly one ride', async ({ browser, requ
       await page.locator('.sheet-search button', { hasText: tag }).first().click()
       await expect(input).toHaveValue(new RegExp(tag))
     }
-    // Two rapid clicks on the same button.
-    await page.getByRole('button', { name: /^Åk(a)? nu$/ }).dblclick({ timeout: 10_000 }).catch(() => {})
-    await expect(page).toHaveURL(/\/app\/bekraftelse/)
+    // "Åka nu" opens the confirmation sheet; two rapid taps on its confirm button must still book once.
+    await page.getByRole('button', { name: /^Åk(a)? nu$/ }).click()
+    const sheet = page.getByRole('dialog', { name: 'Stämmer det här?' })
+    await sheet.getByRole('button', { name: 'Ja, boka nu' }).dblclick({ timeout: 10_000 }).catch(() => {})
+    await expect(page).toHaveURL(/\/app\/resa\/\d+/)
 
     const after = (await myIds()).filter((id) => !before.has(id))
     created.push(...after)

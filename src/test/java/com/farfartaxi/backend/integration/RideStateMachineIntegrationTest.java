@@ -207,7 +207,9 @@ class RideStateMachineIntegrationTest extends M1TestSupport {
             assertThat(ok).as("round " + round + ": " + results).isEqualTo(1);
             for (Resp r : results) {
                 if (r.status() != 200) {
-                    assertConflict(r, "RIDE_TAKEN");
+                    // losers always see RIDE_TAKEN (a withdrawn offer is resolved against the committed ride status)
+                    assertThat(r.status()).as(r.body().toString()).isEqualTo(409);
+                    assertThat(r.code()).as(r.body().toString()).isEqualTo("RIDE_TAKEN");
                 }
             }
             JsonNode r = ride(p1, id);

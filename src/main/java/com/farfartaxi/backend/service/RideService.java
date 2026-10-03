@@ -1,5 +1,6 @@
 package com.farfartaxi.backend.service;
 
+import com.farfartaxi.backend.api.dto.RideDtos.ActiveRideResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.BookRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.DriverStatsResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.EditRideRequest;
@@ -8,6 +9,7 @@ import com.farfartaxi.backend.api.dto.RideDtos.RideResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.SubmitFeedbackRequest;
 import com.farfartaxi.backend.model.OfferStatus;
 import com.farfartaxi.backend.model.RideEntity;
+import com.farfartaxi.backend.model.RideKind;
 import com.farfartaxi.backend.model.RideFeedbackEntity;
 import com.farfartaxi.backend.model.RideKind;
 import com.farfartaxi.backend.model.RideOfferEntity;
@@ -180,7 +182,7 @@ public class RideService {
         UserEntity user = currentUserService.requireUser();
         Instant now = clock.instant();
         // upcoming = still in play or scheduled in the future; history = in the past and over
-        return rideRepository.findByPassengerIdAndTestOrderByScheduledAtAsc(user.getId(), policy.world(user)).stream()
+        List<RideEntity> rows = rideRepository.findByPassengerIdAndTestOrderByScheduledAtAsc(user.getId(), policy.world(user)).stream()
             .filter(r -> {
                 boolean staleNoDriver = r.getStatus() == RideStatus.NO_DRIVER
                     && !r.getScheduledAt().isAfter(now.minus(NO_DRIVER_UPCOMING_GRACE));
@@ -189,8 +191,9 @@ public class RideService {
             })
             .sorted(history ? java.util.Comparator.comparing(RideEntity::getScheduledAt).reversed()
                 : java.util.Comparator.comparing(RideEntity::getScheduledAt))
-            .map(r -> responses.toResponse(r, user, null))
             .toList();
+        java.util.Set<Long> fb = responses.feedbackRideIds(rows);
+        return rows.stream().map(r -> responses.toResponse(r, user, null, fb)).toList();
     }
 
     // ------------------------------------------------------------------ passenger actions
@@ -403,6 +406,62 @@ public class RideService {
             .stream()
             .map(r -> responses.toResponse(r, driver, null))
             .toList();
+    }
+
+    public List<RideResponse> driverHistory(Integer limit) {
+        UserEntity driver = currentUserService.requireUser();
+        requireRole(driver, Role.DRIVER);
+        int size = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
+        var page = org.springframework.data.domain.PageRequest.of(0, size,
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "scheduledAt", "id"));
+        return rideRepository.findByAcceptedByDriver_IdAndStatusInAndTest(driver.getId(),
+                java.util.EnumSet.of(RideStatus.COMPLETED, RideStatus.CANCELLED), policy.world(driver), page)
+            .stream().map(r -> responses.toResponse(r, driver, null)).toList();
+    }
+
+    /** The caller's single most relevant active ride (driver view first), or empty. */
+    public Optional<ActiveRideResponse> activeRide() {
+        UserEntity user = currentUserService.requireUser();
+        Instant now = clock.instant();
+        boolean world = policy.world(user);
+        java.util.Comparator<RideEntity> byTime = java.util.Comparator.comparing(RideEntity::getScheduledAt);
+        if (user.getRole() == Role.DRIVER || user.getRole() == Role.ADMIN) {
+            List<RideEntity> mine = rideRepository.findByAcceptedByDriver_IdAndStatusInAndTestOrderByScheduledAtAsc(
+                user.getId(), RideStatus.ASSIGNED, world);
+            Optional<RideEntity> pick = mine.stream()
+                .filter(r -> r.getStatus() != RideStatus.ACCEPTED)
+                .max(java.util.Comparator.comparingInt((RideEntity r) -> r.getStatus().ordinal()).thenComparing(byTime.reversed()));
+            if (pick.isEmpty()) {
+                Instant horizon = now.plus(Duration.ofMinutes(60));
+                pick = mine.stream()
+                    .filter(r -> r.getStatus() == RideStatus.ACCEPTED && !r.getScheduledAt().isAfter(horizon))
+                    .min(byTime);
+            }
+            if (pick.isPresent()) {
+                return Optional.of(new ActiveRideResponse("DRIVER", responses.toResponse(pick.get(), user, null)));
+            }
+        }
+        Instant horizon = now.plus(Duration.ofMinutes(60));
+        List<RideEntity> own = rideRepository.findByPassengerIdAndStatusInAndTest(user.getId(),
+            java.util.EnumSet.of(RideStatus.ACCEPTED, RideStatus.EN_ROUTE, RideStatus.ARRIVED, RideStatus.PICKED_UP,
+                RideStatus.REQUESTED, RideStatus.NO_DRIVER), world);
+        // A far-future booking is not "active": ACCEPTED/REQUESTED count only for NOW rides or within the next hour.
+        java.util.function.Predicate<RideEntity> relevant = r -> switch (r.getStatus()) {
+            case EN_ROUTE, ARRIVED, PICKED_UP -> true;
+            case ACCEPTED, REQUESTED -> r.getKind() == RideKind.NOW || !r.getScheduledAt().isAfter(horizon);
+            default -> false;
+        };
+        Optional<RideEntity> pick = own.stream().filter(relevant).filter(r -> RideStatus.ASSIGNED.contains(r.getStatus()))
+            .max(java.util.Comparator.comparingInt((RideEntity r) -> r.getStatus().ordinal()).thenComparing(byTime.reversed()));
+        if (pick.isEmpty()) {
+            pick = own.stream().filter(relevant).filter(r -> r.getStatus() == RideStatus.REQUESTED).min(byTime);
+        }
+        if (pick.isEmpty()) {
+            Instant cutoff = now.minus(Duration.ofHours(2));
+            pick = own.stream().filter(r -> r.getStatus() == RideStatus.NO_DRIVER && r.getScheduledAt().isAfter(cutoff))
+                .max(byTime);
+        }
+        return pick.map(r -> new ActiveRideResponse("PASSENGER", responses.toResponse(r, user, null)));
     }
 
     @Transactional
@@ -767,6 +826,11 @@ public class RideService {
     /** Maps "this ride is no longer what the caller expected" to a coded 409. */
     private AppException staleConflict(RideEntity ride, Optional<RideOfferEntity> offer) {
         RideStatus st = ride.getStatus();
+        // A withdrawn offer on a ride we still see as REQUESTED means another driver's accept (or a cancel) just
+        // committed: read the committed status so the loser gets the precise reason (RIDE_TAKEN / RIDE_CANCELLED).
+        if (st == RideStatus.REQUESTED && offer.map(o -> o.getStatus() == OfferStatus.WITHDRAWN).orElse(false)) {
+            st = rideRepository.findCommittedStatus(ride.getId()).map(RideStatus::valueOf).orElse(st);
+        }
         if (st == RideStatus.CANCELLED) {
             return AppException.conflict("RIDE_CANCELLED", "Resan är avbokad");
         }

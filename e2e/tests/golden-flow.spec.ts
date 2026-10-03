@@ -1,82 +1,7 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
-import type { Identities } from '../global-setup'
+import { test, expect } from '@playwright/test'
+import { ids, loginViaUi, newUserContext, pickAddress } from '../helpers'
 
-const ids: Identities = JSON.parse(readFileSync(new URL('../.e2e-users.json', import.meta.url), 'utf8'))
-
-/** Canned responses so the test never depends on Nominatim / OSRM / OSM tiles. */
-async function stubExternal(ctx: BrowserContext, tag: string) {
-  const places: Record<string, { lat: string; lon: string; name: string }> = {
-    start: { lat: '59.3293', lon: '18.0686', name: `E2E Start ${tag}` },
-    slut: { lat: '59.3400', lon: '18.0900', name: `E2E Slut ${tag}` }
-  }
-  const item = (p: { lat: string; lon: string; name: string }) => ({
-    display_name: `${p.name}, Stockholm, Sverige`,
-    name: p.name,
-    lat: p.lat,
-    lon: p.lon,
-    address: { municipality: 'Stockholms kommun' }
-  })
-  await ctx.route('**/api/public/geocode/search**', (route) => {
-    const q = (new URL(route.request().url()).searchParams.get('q') ?? '').toLowerCase()
-    const p = q.includes('slut') ? places.slut : places.start
-    return route.fulfill({ json: [item(p)] })
-  })
-  await ctx.route('**/api/public/geocode/reverse**', (route) => route.fulfill({ json: item(places.start) }))
-  await ctx.route('**/api/public/route/**', (route) =>
-    route.fulfill({
-      json: {
-        code: 'Ok',
-        routes: [
-          {
-            distance: 2500,
-            duration: 420,
-            geometry: { type: 'LineString', coordinates: [[18.0686, 59.3293], [18.09, 59.34]] }
-          }
-        ]
-      }
-    })
-  )
-  // OSM tiles and any other third-party host.
-  await ctx.route(/^https?:\/\/[^/]*(tile\.openstreetmap|openstreetmap\.org|osm\.org|unpkg\.com)[^/]*\//, (route) => route.abort())
-}
-
-async function newUserContext(browser: Browser, project: { use: Record<string, unknown> }, tag: string) {
-  const ctx = await browser.newContext({
-    ...(project.use as object),
-    geolocation: { latitude: 59.3293, longitude: 18.0686 },
-    permissions: ['geolocation']
-  })
-  await stubExternal(ctx, tag)
-  return ctx
-}
-
-async function loginViaUi(page: Page, u: { email: string; password: string }) {
-  await page.goto('/login')
-  // When Google sign-in is configured (production), the password form sits behind a toggle button.
-  const passwordToggle = page.getByRole('button', { name: /E-post och lösenord/ })
-  const emailField = page.getByLabel('E-post')
-  await expect(passwordToggle.or(emailField).first()).toBeVisible()
-  if (await passwordToggle.isVisible()) await passwordToggle.click()
-  await emailField.fill(u.email)
-  await page.getByLabel('Lösenord').fill(u.password)
-  await page.getByRole('button', { name: 'Fortsätt' }).click()
-  await expect(page).toHaveURL(/\/app/)
-  // The PWA-install modal appears once after login and blocks the page; dismiss it.
-  const later = page.getByRole('button', { name: 'Inte nu' })
-  await later.waitFor({ state: 'visible', timeout: 5_000 }).then(() => later.click(), () => {})
-}
-
-async function pickAddress(page: Page, ariaLabel: string, query: string, tag: string) {
-  const input = page.getByLabel(ariaLabel, { exact: true })
-  await input.click()
-  await input.fill(query)
-  const hit = page.locator('.sheet-search button', { hasText: tag })
-  await hit.first().click()
-  await expect(input).toHaveValue(new RegExp(tag))
-}
-
-test('golden flow: passenger books, driver accepts, starts and completes, passenger sees history', async ({ browser }, testInfo) => {
+test('golden flow: passenger books, driver accepts, drives and completes, passenger sees history', async ({ browser }, testInfo) => {
   const tag = `${Date.now().toString(36)}${testInfo.project.name.replace(/\W/g, '')}`
   const passengerCtx = await newUserContext(browser, testInfo.project, tag)
   const driverCtx = await newUserContext(browser, testInfo.project, tag)
@@ -84,18 +9,25 @@ test('golden flow: passenger books, driver accepts, starts and completes, passen
   const driver = await driverCtx.newPage()
 
   try {
-    // Passenger logs in and books "Åka nu" through the UI.
+    // Passenger logs in and books "Åka nu" through the UI, confirming in the bottom sheet.
     await loginViaUi(passenger, ids.passenger)
     await passenger.goto('/app')
     await pickAddress(passenger, 'Startadress', 'start', tag)
     await pickAddress(passenger, 'Destination', 'slut', tag)
     await passenger.getByRole('button', { name: /^Åk(a)? nu$/ }).click()
-    await expect(passenger).toHaveURL(/\/app\/bekraftelse/)
+    const sheet = passenger.getByRole('dialog', { name: 'Stämmer det här?' })
+    await expect(sheet).toContainText(`E2E Start ${tag}`)
+    await expect(sheet).toContainText(`E2E Slut ${tag}`)
+    await sheet.getByRole('button', { name: 'Ja, boka nu' }).click()
+
+    // The new ride is the passenger's home from now on.
+    await expect(passenger).toHaveURL(/\/app\/resa\/\d+/)
+    await expect(passenger.getByRole('heading', { name: 'Vi letar efter en förare…' })).toBeVisible()
     await expect(passenger.getByText(`E2E Start ${tag}`).first()).toBeVisible()
 
-    // Driver logs in (second context) and sees the open ride.
+    // Driver logs in (second context), lands on the driver home and sees the open ride.
     await loginViaUi(driver, ids.driver)
-    await driver.goto('/app/forare')
+    await expect(driver).toHaveURL(/\/app\/forare$/)
     const rideCard = driver.locator('article.ride-item').filter({ hasText: `E2E Start ${tag}` })
     await expect(rideCard).toBeVisible()
     await rideCard.getByRole('button', { name: 'Ta resan' }).click()
@@ -103,15 +35,24 @@ test('golden flow: passenger books, driver accepts, starts and completes, passen
     const proximity = driver.getByRole('button', { name: 'Ta ändå' })
     await proximity.waitFor({ state: 'visible', timeout: 3_000 }).then(() => proximity.click(), () => {})
 
-    await expect(rideCard.getByRole('button', { name: 'Kör nu' })).toBeVisible()
-    await rideCard.getByRole('button', { name: 'Kör nu' }).click()
-    await rideCard.getByRole('button', { name: 'Jag är framme' }).click()
-    await rideCard.getByRole('button', { name: 'Hämtat upp' }).click()
-    await rideCard.getByRole('button', { name: 'Klar', exact: true }).click()
-    await expect(driver.getByText('Resan är klar.')).toBeVisible()
+    // The accepted ride becomes the driver's active ride: open driving mode.
+    await driver.getByRole('button', { name: /Öppna körläge|Fortsätt köra/ }).first().click()
+    await expect(driver).toHaveURL(/\/app\/forare\/kor\/\d+/)
+    await expect(driver.getByText(`E2E Start ${tag}`).first()).toBeVisible()
 
-    // Passenger sees the completed ride in their rides list.
+    // One big step button at a time.
+    await driver.getByRole('button', { name: 'Kör nu' }).click()
+    await driver.getByRole('button', { name: 'Jag är framme' }).click()
+    await driver.getByRole('button', { name: 'Hämtat upp' }).click()
+    await driver.getByRole('button', { name: 'Klar', exact: true }).click()
+    await expect(driver.getByText('Klart! Bra jobbat')).toBeVisible()
+    await driver.getByRole('button', { name: 'Klart – tillbaka' }).click()
+    await expect(driver).toHaveURL(/\/app\/forare$/)
+
+    // Passenger's ride screen follows along, and the ride ends up under "Tidigare" in Mina resor.
+    await expect(passenger.getByRole('heading', { name: 'Framme! Tack för åkturen' })).toBeVisible({ timeout: 20_000 })
     await passenger.goto('/app/resor')
+    await expect(passenger.getByRole('heading', { name: 'Mina resor' })).toBeVisible()
     const row = passenger.locator('article.ride-item').filter({ hasText: `E2E Start ${tag}` })
     await expect(row).toContainText('Klar')
   } finally {

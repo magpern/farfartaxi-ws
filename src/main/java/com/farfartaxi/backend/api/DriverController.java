@@ -43,6 +43,11 @@ public class DriverController {
         return rideService.listMyAssignedRides();
     }
 
+    @GetMapping("/rides/history")
+    public List<RideResponse> history(@org.springframework.web.bind.annotation.RequestParam(required = false) Integer limit) {
+        return rideService.driverHistory(limit);
+    }
+
     @PostMapping("/rides/{rideId}/accept")
     public RideResponse accept(@PathVariable Long rideId, @RequestBody(required = false) AcceptRequest request) {
         boolean confirm = request != null && Boolean.TRUE.equals(request.confirmProximity());

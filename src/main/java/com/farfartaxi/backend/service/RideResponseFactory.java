@@ -6,6 +6,7 @@ import com.farfartaxi.backend.model.RideOfferEntity;
 import com.farfartaxi.backend.model.RideStatus;
 import com.farfartaxi.backend.model.Role;
 import com.farfartaxi.backend.model.UserEntity;
+import com.farfartaxi.backend.repo.RideFeedbackRepository;
 import com.farfartaxi.backend.repo.UserRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -23,21 +24,39 @@ public class RideResponseFactory {
     private final RideOfferService offers;
     private final RideRealtimeService realtime;
     private final UserRepository users;
+    private final RideFeedbackRepository feedback;
 
-    public RideResponseFactory(RideOfferService offers, RideRealtimeService realtime, UserRepository users) {
+    public RideResponseFactory(RideOfferService offers, RideRealtimeService realtime, UserRepository users,
+                               RideFeedbackRepository feedback) {
         this.offers = offers;
         this.realtime = realtime;
         this.users = users;
+        this.feedback = feedback;
     }
 
     /** @param viewer null for anonymous share-link viewers */
     public RideResponse toResponse(RideEntity ride, UserEntity viewer, Boolean lastEditMaterial) {
+        return toResponse(ride, viewer, lastEditMaterial, null);
+    }
+
+    /** Ids of those rides that already have feedback: one query for a whole list. */
+    public Set<Long> feedbackRideIds(List<RideEntity> rides) {
+        if (rides.isEmpty()) {
+            return Set.of();
+        }
+        return new java.util.HashSet<>(feedback.findRideIdsWithFeedback(rides.stream().map(RideEntity::getId).toList()));
+    }
+
+    /** @param feedbackRideIds pre-loaded ids from {@link #feedbackRideIds} for list endpoints; null = look up singly */
+    public RideResponse toResponse(RideEntity ride, UserEntity viewer, Boolean lastEditMaterial, Set<Long> feedbackRideIds) {
         UserEntity driver = ride.getAcceptedByDriver();
         boolean isPassenger = viewer != null && ride.getPassenger().getId().equals(viewer.getId());
         boolean isDriver = viewer != null && driver != null && driver.getId().equals(viewer.getId());
         boolean participantOfAccepted = (isPassenger || isDriver) && driver != null && RideStatus.ASSIGNED.contains(ride.getStatus());
         Optional<RideOfferEntity> myOffer = viewer == null || isPassenger
             ? Optional.empty() : offers.offerOf(ride.getId(), viewer.getId());
+        boolean feedbackGiven = isPassenger && (feedbackRideIds != null
+            ? feedbackRideIds.contains(ride.getId()) : feedback.findByRideId(ride.getId()).isPresent());
         return new RideResponse(
             ride.getId(),
             ride.getStatus().name(),
@@ -61,7 +80,8 @@ public class RideResponseFactory {
             lastEditMaterial,
             myOffer.map(o -> o.getStatus().name()).orElse(null),
             myOffer.map(RideOfferEntity::isPriority).orElse(null),
-            viewer == null ? List.of() : availableActions(ride, viewer, isPassenger, isDriver, myOffer)
+            viewer == null ? List.of() : availableActions(ride, viewer, isPassenger, isDriver, myOffer),
+            feedbackGiven
         );
     }
 

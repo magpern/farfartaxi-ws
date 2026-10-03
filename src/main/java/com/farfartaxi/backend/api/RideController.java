@@ -85,6 +85,13 @@ public class RideController {
         return rideService.listMine(history);
     }
 
+    @GetMapping("/active")
+    public org.springframework.http.ResponseEntity<com.farfartaxi.backend.api.dto.RideDtos.ActiveRideResponse> active() {
+        return rideService.activeRide()
+            .map(org.springframework.http.ResponseEntity::ok)
+            .orElseGet(() -> org.springframework.http.ResponseEntity.noContent().build());
+    }
+
     @GetMapping("/{rideId}")
     public RideResponse getRide(@PathVariable Long rideId) {
         return rideService.getMyRide(rideId);

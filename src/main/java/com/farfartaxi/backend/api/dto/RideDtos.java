@@ -60,6 +60,9 @@ public final class RideDtos {
     public record SubmitFeedbackRequest(@Min(1) @Max(5) Integer stars, String comment) {
     }
 
+    /** role is PASSENGER or DRIVER: which view of the ride the caller currently has. */
+    public record ActiveRideResponse(String role, RideResponse ride) {}
+
     public record RideResponse(
         Long id,
         String status,
@@ -90,7 +93,8 @@ public final class RideDtos {
         Boolean lastEditMaterial,
         String myOfferStatus,
         Boolean offerPriority,
-        List<String> availableActions
+        List<String> availableActions,
+        boolean feedbackGiven
     ) {
     }
 
