@@ -47,10 +47,18 @@ class V6MigrationDataTest {
     @Test
     void v6MapsLegacyStatusesAndAppliesCleanly() throws Exception {
         try (Connection c = DriverManager.getConnection("jdbc:h2:mem:v6mig;MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", "")) {
-            exec(c, "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, email VARCHAR(255) NOT NULL)");
+            exec(c, "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, email VARCHAR(255) NOT NULL, role VARCHAR(32) NOT NULL DEFAULT 'USER', "
+                + "enabled BOOLEAN NOT NULL DEFAULT TRUE, approved BOOLEAN NOT NULL DEFAULT TRUE, is_test BOOLEAN NOT NULL DEFAULT FALSE)");
             exec(c, "CREATE TABLE rides (id BIGSERIAL PRIMARY KEY, passenger_id BIGINT NOT NULL REFERENCES users(id), "
-                + "status VARCHAR(32) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW())");
-            exec(c, "INSERT INTO users (email) VALUES ('a@b.c')");
+                + "status VARCHAR(32) NOT NULL, is_test BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW())");
+            exec(c, "INSERT INTO users (email) VALUES ('a@b.c')"); // id 1: the passenger
+            exec(c, "INSERT INTO users (email, role) VALUES ('drv@b.c', 'DRIVER')"); // 2
+            exec(c, "INSERT INTO users (email, role) VALUES ('adm@b.c', 'ADMIN')"); // 3
+            exec(c, "INSERT INTO users (email, role, enabled) VALUES ('off@b.c', 'DRIVER', FALSE)"); // 4 disabled
+            exec(c, "INSERT INTO users (email, role, approved) VALUES ('pend@b.c', 'DRIVER', FALSE)"); // 5 unapproved
+            exec(c, "INSERT INTO users (email, role, is_test) VALUES ('tdrv@b.c', 'DRIVER', TRUE)"); // 6 other world
+            exec(c, "INSERT INTO users (email, role) VALUES ('usr@b.c', 'USER')"); // 7
+            exec(c, "INSERT INTO users (email, role) VALUES ('self@b.c', 'DRIVER')"); // 8: driver who is also a passenger
             Map<String, String> legacy = new LinkedHashMap<>();
             legacy.put("PENDING_OPEN", "REQUESTED");
             legacy.put("IN_PROGRESS", "EN_ROUTE");
@@ -63,12 +71,14 @@ class V6MigrationDataTest {
                 exec(c, "INSERT INTO rides (passenger_id, status) VALUES (1, '" + s + "')");
             }
 
+            exec(c, "INSERT INTO rides (passenger_id, status) VALUES (8, 'PENDING_OPEN')"); // id 7: booked by a driver
+
             for (String s : statements()) {
                 exec(c, s);
             }
 
             try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery(
-                "SELECT status, kind, version, urgent, client_request_id, requested_at, created_at FROM rides ORDER BY id")) {
+                "SELECT status, kind, version, urgent, client_request_id, requested_at, created_at FROM rides WHERE id <= 6 ORDER BY id")) {
                 int i = 0;
                 while (rs.next()) {
                     String legacyStatus = order.get(i++);
@@ -88,6 +98,18 @@ class V6MigrationDataTest {
                     assertThat(valid).contains(rs.getString(1));
                 }
             }
+            // backfill: only migrated REQUESTED rides (1 and 7) got offers, for same-world enabled+approved DRIVER/ADMIN
+            // users, never the passenger (ride 7 is booked by driver 8)
+            try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery(
+                "SELECT ride_id, driver_id, status, priority FROM ride_offers ORDER BY ride_id, driver_id")) {
+                List<String> got = new ArrayList<>();
+                while (rs.next()) {
+                    got.add(rs.getLong(1) + ":" + rs.getLong(2) + ":" + rs.getString(3) + ":" + rs.getBoolean(4));
+                }
+                assertThat(got).containsExactly("1:2:OFFERED:false", "1:3:OFFERED:false", "1:8:OFFERED:false",
+                    "7:2:OFFERED:false", "7:3:OFFERED:false");
+            }
+            exec(c, "DELETE FROM ride_offers");
             // new tables and constraints work
             exec(c, "INSERT INTO ride_offers (ride_id, driver_id, status, offered_at) VALUES (1, 1, 'OFFERED', NOW())");
             assertThatThrownBy(() -> exec(c, "INSERT INTO ride_offers (ride_id, driver_id, status, offered_at) VALUES (1, 1, 'OFFERED', NOW())"))

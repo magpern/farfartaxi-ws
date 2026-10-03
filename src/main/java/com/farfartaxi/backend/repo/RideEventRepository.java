@@ -10,6 +10,10 @@ public interface RideEventRepository extends JpaRepository<RideEventEntity, Long
     List<RideEventEntity> findByRideIdOrderByIdAsc(Long rideId);
 
     @Modifying
+    @Query("update RideEventEntity e set e.actorId = null where e.actorId = :userId")
+    void clearActor(@org.springframework.data.repository.query.Param("userId") Long userId);
+
+    @Modifying
     @Query("delete from RideEventEntity e where e.rideId = :rideId")
     void deleteByRideId(@org.springframework.data.repository.query.Param("rideId") Long rideId);
 

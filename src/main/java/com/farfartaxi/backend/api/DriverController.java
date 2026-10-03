@@ -46,12 +46,7 @@ public class DriverController {
     @PostMapping("/rides/{rideId}/accept")
     public RideResponse accept(@PathVariable Long rideId, @RequestBody(required = false) AcceptRequest request) {
         boolean confirm = request != null && Boolean.TRUE.equals(request.confirmProximity());
-        try {
-            return rideService.accept(rideId, confirm);
-        } catch (org.springframework.dao.ConcurrencyFailureException | jakarta.persistence.OptimisticLockException e) {
-            // lost the race: another driver's accept committed first (RideEntity @Version)
-            throw AppException.conflict("RIDE_TAKEN", "Resan är redan tagen");
-        }
+        return rideService.accept(rideId, confirm);
     }
 
     @PostMapping({"/rides/{rideId}/decline", "/rides/{rideId}/refuse"})

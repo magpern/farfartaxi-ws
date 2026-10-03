@@ -74,8 +74,8 @@ class RideStateMachineIntegrationTest extends M1TestSupport {
         declineAllReal(id);
         JsonNode noDriver = ride(p1, id);
         assertThat(noDriver.get("status").asText()).isEqualTo("NO_DRIVER");
-        // everybody declined: keep-waiting is not offered
-        assertThat(actions(noDriver)).containsExactlyInAnyOrder("CANCEL", "EDIT");
+        // every offered driver declined, but the late driver was never offered: keep-waiting would offer it
+        assertThat(actions(noDriver)).containsExactlyInAnyOrder("CANCEL", "EDIT", "KEEP_WAITING");
     }
 
     @Test

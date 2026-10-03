@@ -1,6 +1,7 @@
 package com.farfartaxi.backend.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
@@ -89,7 +90,7 @@ class RideEditAndMessagesIntegrationTest extends M1TestSupport {
         acceptOk(d1, near);
         JsonNode minor = patch(p1, near, Map.of("fromLat", 59.3329), 200); // ~400 m
         assertThat(minor.get("status").asText()).isEqualTo("ACCEPTED");
-        verify(osrm, atLeastOnce()).drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble());
+        verify(osrm, atLeastOnce()).drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble(), any());
 
         long far = bookAt(S.plus(Duration.ofDays(3)));
         acceptOk(d1, far);
@@ -102,7 +103,7 @@ class RideEditAndMessagesIntegrationTest extends M1TestSupport {
     void routeLengthRuleUsesOsrmAndFallsBackToHaversine() throws Exception {
         AtomicReference<Double> before = new AtomicReference<>(10000.0);
         AtomicReference<Double> after = new AtomicReference<>(12000.0);
-        when(osrm.drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble())).thenAnswer(inv -> {
+        when(osrm.drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble(), any())).thenAnswer(inv -> {
             double toLat = inv.getArgument(2);
             double d = toLat > 59.3340 ? after.get() : before.get();
             return "{\"code\":\"Ok\",\"routes\":[{\"distance\":" + d + "}]}";
@@ -111,7 +112,7 @@ class RideEditAndMessagesIntegrationTest extends M1TestSupport {
         long a = bookAt(S.plus(Duration.ofDays(4)));
         acceptOk(d1, a);
         assertThat(patch(p1, a, Map.of("toLat", 59.3341), 200).get("status").asText()).isEqualTo("ACCEPTED");
-        verify(osrm, atLeastOnce()).drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble());
+        verify(osrm, atLeastOnce()).drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble(), any());
         // +26%: material by the 25% rule
         after.set(12600.0);
         long b = bookAt(S.plus(Duration.ofDays(5)));
@@ -128,7 +129,7 @@ class RideEditAndMessagesIntegrationTest extends M1TestSupport {
         long d = bookAt(S.plus(Duration.ofDays(7)));
         acceptOk(d1, d);
         patch(p1, d, Map.of("scheduledAt", S.plus(Duration.ofDays(7)).plus(Duration.ofMinutes(10)).toString()), 200);
-        verify(osrm, never()).drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble());
+        verify(osrm, never()).drivingRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble(), any());
         // OSRM down (null): haversine fallback, a destination ~7 km further is material
         org.mockito.Mockito.reset(osrm);
         long e = bookAt(S.plus(Duration.ofDays(8)));

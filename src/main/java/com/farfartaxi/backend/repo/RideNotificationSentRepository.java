@@ -17,6 +17,10 @@ public interface RideNotificationSentRepository extends JpaRepository<RideNotifi
     void deleteByRideIdAndKind(@Param("rideId") Long rideId, @Param("kind") String kind);
 
     @Modifying
+    @Query("delete from RideNotificationSentEntity n where n.rideId = :rideId and n.kind in :kinds")
+    void deleteByRideIdAndKindIn(@Param("rideId") Long rideId, @Param("kinds") java.util.Collection<String> kinds);
+
+    @Modifying
     @Query("delete from RideNotificationSentEntity n where n.rideId = :rideId")
     void deleteByRideId(@Param("rideId") Long rideId);
 

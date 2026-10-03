@@ -11,6 +11,10 @@ public interface RideMessageRepository extends JpaRepository<RideMessageEntity, 
     List<RideMessageEntity> findByRideIdOrderByIdAsc(Long rideId);
 
     @Modifying
+    @Query("delete from RideMessageEntity m where m.senderId = :senderId")
+    void deleteBySenderId(@Param("senderId") Long senderId);
+
+    @Modifying
     @Query("delete from RideMessageEntity m where m.rideId = :rideId")
     void deleteByRideId(@Param("rideId") Long rideId);
 

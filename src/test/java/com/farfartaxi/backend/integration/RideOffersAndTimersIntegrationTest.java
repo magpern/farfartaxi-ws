@@ -107,6 +107,7 @@ class RideOffersAndTimersIntegrationTest extends M1TestSupport {
         assertThat(status(id)).isEqualTo("NO_DRIVER");
         assertThat(actions(ride(p1, id))).contains("KEEP_WAITING");
 
+        setAvailability(d3, true, null, null);       // never offered, available now: offered like at booking
         JsonNode kept = call("POST", "/api/rides/" + id + "/keep-waiting", p1, null, 200).body();
         assertThat(kept.get("status").asText()).isEqualTo("REQUESTED");
         assertThat(openIds(d2)).contains(id);        // expired offer re-offered
@@ -344,6 +345,10 @@ class RideOffersAndTimersIntegrationTest extends M1TestSupport {
         assertThat(call("GET", "/api/rides/" + testRide + "/messages", p1, null, null).status()).isEqualTo(404);
         assertThat(call("PATCH", "/api/rides/" + testRide, p1, Map.of("pickupNote", "x"), null).status()).isEqualTo(404);
         assertThat(call("POST", "/api/rides/" + realRide + "/keep-waiting", tp, null, null).status()).isEqualTo(404);
+        // test-world rides are served by the test driver; a real driver cannot message on them
+        acceptOk(td, testRide);
+        assertThat(call("POST", "/api/rides/" + testRide + "/messages", d1, Map.of("code", "DRIVER_HERE"), null).status()).isEqualTo(404);
+        assertThat(call("POST", "/api/rides/" + testRide + "/messages", td, Map.of("code", "DRIVER_HERE"), 200).status()).isEqualTo(200);
         // availability of a test driver does not leak into the real world and vice versa
         setAvailability(td, true, "2027-06-10", "2027-06-10");
         long testRide2 = bookAt(tp, at("2027-06-10", "12:00"));
@@ -358,9 +363,5 @@ class RideOffersAndTimersIntegrationTest extends M1TestSupport {
         assertThat(call("GET", "/api/rides/" + testRide3, tp, null, 200).body().get("status").asText()).isEqualTo("NO_DRIVER");
         // real drivers unaffected
         assertThat(status(realRide)).isEqualTo("REQUESTED");
-        // test-world rides are served by the test driver; a real driver cannot message on them
-        acceptOk(td, testRide);
-        assertThat(call("POST", "/api/rides/" + testRide + "/messages", d1, Map.of("code", "DRIVER_HERE"), null).status()).isEqualTo(404);
-        assertThat(call("POST", "/api/rides/" + testRide + "/messages", td, Map.of("code", "DRIVER_HERE"), 200).status()).isEqualTo(200);
     }
 }

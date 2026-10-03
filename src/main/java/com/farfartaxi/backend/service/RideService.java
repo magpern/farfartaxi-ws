@@ -37,6 +37,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class RideService {
     public static final String NOW_REPUSH = "NOW_REPUSH";
+    private static final Duration LEGACY_NOW_WINDOW = Duration.ofMinutes(10);
+    private static final Duration NO_DRIVER_UPCOMING_GRACE = Duration.ofHours(24);
+    private static final List<String> REMINDER_KINDS = List.of(RideTimerService.REMINDER_24H, RideTimerService.REMINDER_2H,
+        RideTimerService.URGENT, RideTimerService.DRIVER_REMINDER_30M, NOW_REPUSH);
     private static final double MATERIAL_PICKUP_METERS = 500;
     private static final Duration MATERIAL_TIME_SHIFT = Duration.ofMinutes(30);
     private static final double MATERIAL_ROUTE_RATIO = 1.25;
@@ -59,6 +63,7 @@ public class RideService {
     private final RouteDistanceService routes;
     private final RideSystemTransitions systemTransitions;
     private final RideResponseFactory responses;
+    private final org.springframework.transaction.support.TransactionTemplate freshTx;
     private final Clock clock;
     private final double defaultEtaKmh;
 
@@ -80,6 +85,7 @@ public class RideService {
         RouteDistanceService routes,
         RideSystemTransitions systemTransitions,
         RideResponseFactory responses,
+        org.springframework.transaction.support.TransactionTemplate txTemplate,
         Clock clock,
         @Value("${app.eta.default-kmh}") double defaultEtaKmh
     ) {
@@ -100,6 +106,9 @@ public class RideService {
         this.routes = routes;
         this.systemTransitions = systemTransitions;
         this.responses = responses;
+        this.freshTx = new org.springframework.transaction.support.TransactionTemplate(txTemplate.getTransactionManager());
+        this.freshTx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.freshTx.setReadOnly(true);
         this.clock = clock;
         this.defaultEtaKmh = defaultEtaKmh;
     }
@@ -121,8 +130,11 @@ public class RideService {
             }
         }
         Instant now = clock.instant();
+        // Old cached clients send no kind: a time within 10 minutes of now is their "Åk nu".
         RideKind kind = request.kind() != null ? request.kind()
-            : request.scheduledAt() != null ? RideKind.SCHEDULED : RideKind.NOW;
+            : request.scheduledAt() == null
+                || Duration.between(now, request.scheduledAt()).abs().compareTo(LEGACY_NOW_WINDOW) <= 0
+                ? RideKind.NOW : RideKind.SCHEDULED;
         Instant when;
         if (kind == RideKind.NOW) {
             when = now;
@@ -151,6 +163,9 @@ public class RideService {
         ride = rideRepository.save(ride);
         events.record(ride, actor.getId(), RideEventRecorder.BOOKED, passenger.getId().equals(actor.getId()) ? null : "on behalf of user " + passenger.getId());
         offers.createInitialOffers(ride);
+        if (offers.openOffers(ride.getId()).isEmpty()) {
+            systemTransitions.toNoDriver(ride, "no eligible drivers");
+        }
         return responses.toResponse(ride, actor, null);
     }
 
@@ -167,7 +182,9 @@ public class RideService {
         // upcoming = still in play or scheduled in the future; history = in the past and over
         return rideRepository.findByPassengerIdAndTestOrderByScheduledAtAsc(user.getId(), policy.world(user)).stream()
             .filter(r -> {
-                boolean upcoming = RideStatus.ACTIVE.contains(r.getStatus()) || r.getScheduledAt().isAfter(now);
+                boolean staleNoDriver = r.getStatus() == RideStatus.NO_DRIVER
+                    && !r.getScheduledAt().isAfter(now.minus(NO_DRIVER_UPCOMING_GRACE));
+                boolean upcoming = !staleNoDriver && (RideStatus.ACTIVE.contains(r.getStatus()) || r.getScheduledAt().isAfter(now));
                 return history != upcoming;
             })
             .sorted(history ? java.util.Comparator.comparing(RideEntity::getScheduledAt).reversed()
@@ -222,6 +239,9 @@ public class RideService {
             throw AppException.conflict("ALL_DECLINED", "Alla förare har tackat nej");
         }
         machine.transition(ride, RideStatus.REQUESTED, Actor.PASSENGER);
+        if (ride.getKind() == RideKind.NOW) {
+            ride.setScheduledAt(clock.instant()); // fresh window, not a stale booking time
+        }
         resetWaitWindow(ride);
         offers.keepWaiting(ride);
         ride = rideRepository.save(ride);
@@ -258,6 +278,11 @@ public class RideService {
                 throw new AppException(HttpStatus.BAD_REQUEST, "scheduledAt: must be a future date");
             }
             timeChanged = !req.scheduledAt().equals(oldTime);
+            if (timeChanged) {
+                // reminders / urgent belong to the old time
+                ride.setUrgent(false);
+                notificationRepository.deleteByRideIdAndKindIn(ride.getId(), REMINDER_KINDS);
+            }
             ride.setScheduledAt(req.scheduledAt());
             ride.setKind(RideKind.SCHEDULED); // choosing a time turns a NOW ride into a scheduled one
         }
@@ -286,6 +311,7 @@ public class RideService {
                     ride.setAcceptedByDriver(null);
                     ride.setUrgent(false);
                     resetWaitWindow(ride);
+                    notificationRepository.deleteByRideIdAndKind(ride.getId(), RideTimerService.DRIVER_REMINDER_30M);
                     offers.reofferAfterMaterialEdit(ride, driver.getId(), ride.getPassenger().getFullName());
                 } else {
                     pushService.notifyUser(driver.getId(), "Resan ändrades", ride.getPassenger().getFullName() + " ändrade resan lite.");
@@ -295,6 +321,9 @@ public class RideService {
         }
         ride = rideRepository.save(ride);
         events.record(ride, user.getId(), RideEventRecorder.EDITED, material ? "material" : "minor");
+        if (ride.getStatus() == RideStatus.REQUESTED && offers.openOffers(ride.getId()).isEmpty()) {
+            systemTransitions.toNoDriver(ride, "no eligible drivers after edit");
+        }
         responses.publish(ride, st == RideStatus.ACCEPTED && material ? offerDriverIds(ride) : new Long[0]);
         return responses.toResponse(ride, user, material);
     }
@@ -388,7 +417,10 @@ public class RideService {
             throw AppException.conflict("INVALID_TRANSITION", "Du har redan tagit resan");
         }
         Optional<RideOfferEntity> offer = offers.offerOf(rideId, driver.getId());
-        if (ride.getStatus() != RideStatus.REQUESTED || offer.map(o -> !o.getStatus().isOpen()).orElse(false)) {
+        if (ride.getStatus() != RideStatus.REQUESTED || offer.isEmpty() || !offer.get().getStatus().isOpen()) {
+            if (offer.isEmpty() && ride.getStatus() == RideStatus.REQUESTED) {
+                throw AppException.conflict("OFFER_CLOSED", "Resan är inte erbjuden till dig");
+            }
             throw staleConflict(ride, offer);
         }
         if (!confirmProximity) {
@@ -403,12 +435,29 @@ public class RideService {
         machine.transition(ride, RideStatus.ACCEPTED, Actor.DRIVER);
         ride.setAcceptedByDriver(driver);
         ride.setUrgent(false);
-        offers.accept(ride, driver);
-        ride = rideRepository.save(ride);
+        try {
+            offers.accept(ride, driver);
+            ride = rideRepository.saveAndFlush(ride);
+        } catch (org.springframework.dao.ConcurrencyFailureException | jakarta.persistence.OptimisticLockException e) {
+            throw lostRace(rideId, driver.getId());
+        }
+        notificationRepository.deleteByRideIdAndKind(rideId, RideTimerService.DRIVER_REMINDER_30M); // new driver gets their own reminder
         events.record(ride, driver.getId(), RideEventRecorder.ACCEPTED);
         pushService.notifyUser(ride.getPassenger().getId(), "Din resa accepterades", driver.getFullName() + " tar resan.");
         responses.publish(ride);
         return responses.toResponse(ride, driver, null);
+    }
+
+    /** Lost an optimistic-lock race: re-read the committed state in a fresh transaction and report what really happened. */
+    private AppException lostRace(Long rideId, Long driverId) {
+        AppException ex = freshTx.execute(st -> {
+            RideEntity fresh = rideRepository.findById(rideId).orElse(null);
+            if (fresh == null) {
+                return AppException.conflict("RIDE_CHANGED", "Resan har ändrats");
+            }
+            return staleConflict(fresh, offers.offerOf(rideId, driverId));
+        });
+        return ex != null ? ex : AppException.conflict("RIDE_CHANGED", "Resan har ändrats");
     }
 
     @Transactional
@@ -451,6 +500,7 @@ public class RideService {
         ride.setAcceptedByDriver(null);
         ride.setStartedAt(null);
         resetWaitWindow(ride);
+        notificationRepository.deleteByRideIdAndKind(rideId, RideTimerService.DRIVER_REMINDER_30M);
         int open = offers.reofferAfterReturn(ride, driver.getId());
         ride = rideRepository.save(ride);
         events.record(ride, driver.getId(), RideEventRecorder.RETURNED, reason);

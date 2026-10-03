@@ -60,6 +60,7 @@ public class RideResponseFactory {
             ride.getArrivedAt(), ride.getPickedUpAt(),
             lastEditMaterial,
             myOffer.map(o -> o.getStatus().name()).orElse(null),
+            myOffer.map(RideOfferEntity::isPriority).orElse(null),
             viewer == null ? List.of() : availableActions(ride, viewer, isPassenger, isDriver, myOffer)
         );
     }

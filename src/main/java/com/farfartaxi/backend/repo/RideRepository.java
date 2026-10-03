@@ -26,11 +26,20 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
 
     List<RideEntity> findByStatus(RideStatus status);
 
+    /** Row lock for scheduler steps: a concurrent user action either finishes first (we see its state) or waits for us. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from RideEntity r where r.id = :id")
+    Optional<RideEntity> findByIdForUpdate(@org.springframework.data.repository.query.Param("id") Long id);
+
     List<RideEntity> findByPassengerIdAndTestOrderByScheduledAtAsc(Long passengerId, boolean test);
 
     Optional<RideEntity> findByPassengerIdAndClientRequestId(Long passengerId, String clientRequestId);
 
     Optional<RideEntity> findByShareToken(String shareToken);
+
+    @Modifying
+    @Query("update RideEntity r set r.refusalDriver = null where r.refusalDriver.id = :userId")
+    void clearRefusalDriver(@org.springframework.data.repository.query.Param("userId") Long userId);
 
     @Modifying
     @Query("delete from RideEntity r where r.test = true")

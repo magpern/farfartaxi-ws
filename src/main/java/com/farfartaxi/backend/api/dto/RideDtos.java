@@ -89,6 +89,7 @@ public final class RideDtos {
         Instant pickedUpAt,
         Boolean lastEditMaterial,
         String myOfferStatus,
+        Boolean offerPriority,
         List<String> availableActions
     ) {
     }

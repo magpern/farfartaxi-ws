@@ -50,8 +50,13 @@ public class RideMessageService {
     @Transactional
     public List<MessageResponse> list(Long rideId) {
         UserEntity user = currentUserService.requireUser();
-        participantRide(rideId, user);
-        List<RideMessageEntity> all = messages.findByRideIdOrderByIdAsc(rideId);
+        RideEntity ride = participantRide(rideId, user);
+        // only the current passenger and the current driver: a previous driver's messages stay hidden
+        Long passengerId = ride.getPassenger().getId();
+        Long driverId = ride.getAcceptedByDriver() == null ? null : ride.getAcceptedByDriver().getId();
+        List<RideMessageEntity> all = messages.findByRideIdOrderByIdAsc(rideId).stream()
+            .filter(m -> m.getSenderId().equals(passengerId) || m.getSenderId().equals(driverId))
+            .toList();
         for (RideMessageEntity m : all) {
             if (m.getReadAt() == null && !m.getSenderId().equals(user.getId())) {
                 m.setReadAt(clock.instant());

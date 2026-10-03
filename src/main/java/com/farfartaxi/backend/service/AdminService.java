@@ -17,8 +17,20 @@ public class AdminService {
     private final CurrentUserService currentUserService;
     private final RefreshTokenService refreshTokenService;
     private final java.time.Clock clock;
+    private final com.farfartaxi.backend.repo.RideOfferRepository offerRepository;
+    private final com.farfartaxi.backend.repo.RideMessageRepository messageRepository;
+    private final com.farfartaxi.backend.repo.RideRepository rideRepository;
+    private final com.farfartaxi.backend.repo.RideEventRepository eventRepository;
 
-    public AdminService(UserRepository userRepository, CurrentUserService currentUserService, RefreshTokenService refreshTokenService, java.time.Clock clock) {
+    public AdminService(UserRepository userRepository, CurrentUserService currentUserService, RefreshTokenService refreshTokenService, java.time.Clock clock,
+                        com.farfartaxi.backend.repo.RideOfferRepository offerRepository,
+                        com.farfartaxi.backend.repo.RideMessageRepository messageRepository,
+                        com.farfartaxi.backend.repo.RideRepository rideRepository,
+                        com.farfartaxi.backend.repo.RideEventRepository eventRepository) {
+        this.rideRepository = rideRepository;
+        this.eventRepository = eventRepository;
+        this.offerRepository = offerRepository;
+        this.messageRepository = messageRepository;
         this.clock = clock;
         this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
@@ -138,7 +150,13 @@ public class AdminService {
             throw new AppException(HttpStatus.BAD_REQUEST, "Cannot delete the last admin");
         }
         try {
+            // offers and canned messages are history that must not block deleting a driver
+            offerRepository.deleteByDriverId(userId);
+            rideRepository.clearRefusalDriver(userId);
+            eventRepository.clearActor(userId);
+            messageRepository.deleteBySenderId(userId);
             userRepository.delete(target);
+            userRepository.flush(); // surface FK violations here instead of at commit (which would be a 500)
         } catch (DataIntegrityViolationException e) {
             throw new AppException(HttpStatus.CONFLICT, "User has related data; block the account instead or remove rides first");
         }

@@ -1,6 +1,7 @@
 -- M1 core ride model. Expand/contract: new columns are nullable or defaulted so v1.5.0 code still reads/inserts.
 -- Rolling back to v1.5.0 requires mapping statuses back first:
---   UPDATE rides SET status='PENDING_OPEN' WHERE status IN ('REQUESTED','NO_DRIVER');
+--   UPDATE rides SET status='REJECTED' WHERE status='NO_DRIVER';
+--   UPDATE rides SET status='PENDING_OPEN' WHERE status='REQUESTED';
 --   UPDATE rides SET status='IN_PROGRESS' WHERE status IN ('EN_ROUTE','ARRIVED','PICKED_UP');
 
 -- Status data migration (kept as plain single-line UPDATE statements; a test replays them on H2).
@@ -56,3 +57,11 @@ CREATE TABLE ride_notifications_sent (
     sent_at TIMESTAMP WITH TIME ZONE NOT NULL,
     UNIQUE (ride_id, kind)
 );
+
+-- Legacy open rides (old PENDING_OPEN, now REQUESTED) were visible to every driver; the new model lists rides through
+-- offers, so give each of them an OFFERED offer for every same-world DRIVER/ADMIN (never the passenger).
+INSERT INTO ride_offers (ride_id, driver_id, status, priority, offered_at)
+SELECT r.id, u.id, 'OFFERED', FALSE, CURRENT_TIMESTAMP
+FROM rides r JOIN users u ON u.is_test = r.is_test
+WHERE r.status = 'REQUESTED' AND u.role IN ('DRIVER', 'ADMIN') AND u.enabled = TRUE AND u.approved = TRUE
+  AND u.id <> r.passenger_id;

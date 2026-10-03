@@ -79,7 +79,7 @@ public class RideTimerService {
     }
 
     private void handleRequested(Long rideId, Instant now) {
-        RideEntity ride = rides.findById(rideId).orElse(null);
+        RideEntity ride = rides.findByIdForUpdate(rideId).orElse(null); // row lock: a concurrent accept/cancel wins
         if (ride == null || ride.getStatus() != RideStatus.REQUESTED) {
             return;
         }
@@ -119,7 +119,7 @@ public class RideTimerService {
     }
 
     private void handleAccepted(Long rideId, Instant now) {
-        RideEntity ride = rides.findById(rideId).orElse(null);
+        RideEntity ride = rides.findByIdForUpdate(rideId).orElse(null); // row lock: a concurrent accept/cancel wins
         if (ride == null || ride.getStatus() != RideStatus.ACCEPTED || ride.getKind() != RideKind.SCHEDULED
             || ride.getAcceptedByDriver() == null) {
             return;

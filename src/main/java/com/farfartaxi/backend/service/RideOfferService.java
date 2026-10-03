@@ -29,6 +29,8 @@ public class RideOfferService {
     private final UserRepository users;
     private final PushService push;
     private final Clock clock;
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager em;
 
     public RideOfferService(RideOfferRepository offers, UserRepository users, PushService push, Clock clock) {
         this.offers = offers;
@@ -46,6 +48,11 @@ public class RideOfferService {
 
     private LocalDate today() {
         return Geo.stockholmDate(clock.instant());
+    }
+
+    /** The date the away rule is checked against: today for NOW rides, the ride's Stockholm date otherwise. */
+    public LocalDate rideDate(RideEntity ride) {
+        return ride.getKind() == RideKind.NOW ? today() : Geo.stockholmDate(ride.getScheduledAt());
     }
 
     private RideOfferEntity newOffer(RideEntity ride, UserEntity driver) {
@@ -81,7 +88,7 @@ public class RideOfferService {
 
     /** Booking: NOW to drivers available now and not away today; SCHEDULED to everybody not away on the ride's date. */
     public void createInitialOffers(RideEntity ride) {
-        LocalDate date = ride.getKind() == RideKind.NOW ? today() : Geo.stockholmDate(ride.getScheduledAt());
+        LocalDate date = rideDate(ride);
         for (UserEntity d : driverPool(ride)) {
             boolean eligible = !d.isAwayOn(date) && (ride.getKind() == RideKind.SCHEDULED || d.isDriverAvailableNow());
             if (eligible) {
@@ -109,27 +116,57 @@ public class RideOfferService {
         }
     }
 
+    /** Pushes to every driver with an open offer, except those away on the ride's date. */
     public void pushToOpen(RideEntity ride, String title, String body) {
-        openOffers(ride.getId()).forEach(o -> push.notifyUser(o.getDriverId(), title, body));
+        LocalDate date = rideDate(ride);
+        for (RideOfferEntity o : openOffers(ride.getId())) {
+            boolean away = users.findById(o.getDriverId()).map(u -> u.isAwayOn(date)).orElse(true);
+            if (!away) {
+                push.notifyUser(o.getDriverId(), title, body);
+            }
+        }
     }
 
+    /** OFFERED to VIEWED with a conditional update, so a concurrently closed offer is never resurrected. */
+    @jakarta.transaction.Transactional
     public void markViewed(RideOfferEntity o) {
         if (o.getStatus() == OfferStatus.OFFERED) {
-            o.setStatus(OfferStatus.VIEWED);
-            o.setViewedAt(clock.instant());
-            offers.save(o);
+            offers.markViewedIfOffered(o.getId(), clock.instant());
+            if (em.contains(o)) {
+                em.refresh(o);
+            }
         }
+    }
+
+    /**
+     * The driver went away: open offers of rides on a date inside the new away period are withdrawn.
+     * @return rides that were left without any open offer (still REQUESTED)
+     */
+    public List<RideEntity> withdrawForAway(UserEntity driver, java.util.function.Function<Long, RideEntity> rideLoader) {
+        List<RideEntity> emptied = new ArrayList<>();
+        for (RideOfferEntity o : offers.findByDriverIdAndStatusIn(driver.getId(), List.of(OfferStatus.OFFERED, OfferStatus.VIEWED))) {
+            RideEntity ride = rideLoader.apply(o.getRideId());
+            if (ride == null || ride.getStatus() != com.farfartaxi.backend.model.RideStatus.REQUESTED
+                || !driver.isAwayOn(rideDate(ride))) {
+                continue;
+            }
+            o.setStatus(OfferStatus.WITHDRAWN);
+            o.setRespondedAt(clock.instant());
+            offers.save(o);
+            if (openOffers(ride.getId()).isEmpty()) {
+                emptied.add(ride);
+            }
+        }
+        return emptied;
     }
 
     /** Winner ACCEPTED, every other open offer WITHDRAWN. */
     public void accept(RideEntity ride, UserEntity driver) {
         Instant now = clock.instant();
-        boolean found = false;
         for (RideOfferEntity o : offers.findByRideId(ride.getId())) {
             if (o.getDriverId().equals(driver.getId())) {
                 o.setStatus(OfferStatus.ACCEPTED);
                 o.setRespondedAt(now);
-                found = true;
                 offers.save(o);
             } else if (o.getStatus().isOpen()) {
                 o.setStatus(OfferStatus.WITHDRAWN);
@@ -137,12 +174,15 @@ public class RideOfferService {
                 offers.save(o);
             }
         }
-        if (!found) {
-            RideOfferEntity o = newOffer(ride, driver);
-            o.setStatus(OfferStatus.ACCEPTED);
-            o.setRespondedAt(now);
-            offers.save(o);
-        }
+    }
+
+    private Map<Long, UserEntity> driversById(RideEntity ride) {
+        return driverPool(ride).stream().collect(Collectors.toMap(UserEntity::getId, Function.identity()));
+    }
+
+    /** In the ride's driver pool and not away on the date. */
+    private static boolean isEligibleDriver(UserEntity d, LocalDate date) {
+        return d != null && !d.isAwayOn(date);
     }
 
     /** @return true when no open offer is left (the ride should become NO_DRIVER) */
@@ -178,12 +218,17 @@ public class RideOfferService {
     /** Driver returned the ride: their offer stays WITHDRAWN, the others are offered again, decliners stay declined. */
     public int reofferAfterReturn(RideEntity ride, Long returningDriverId) {
         int open = 0;
+        LocalDate date = rideDate(ride);
+        Map<Long, UserEntity> drivers = driversById(ride);
         for (RideOfferEntity o : offers.findByRideId(ride.getId())) {
             if (o.getDriverId().equals(returningDriverId)) {
                 o.setStatus(OfferStatus.WITHDRAWN);
                 o.setRespondedAt(clock.instant());
                 offers.save(o);
             } else if (REOFFERABLE.contains(o.getStatus())) {
+                if (!isEligibleDriver(drivers.get(o.getDriverId()), date)) {
+                    continue;
+                }
                 reset(o, false);
                 push.notifyUser(o.getDriverId(), "Resa blev ledig igen", "En resa är tillbaka i kön.");
                 open++;
@@ -200,14 +245,23 @@ public class RideOfferService {
      */
     public void reofferAfterMaterialEdit(RideEntity ride, Long priorDriverId, String passengerName) {
         List<RideOfferEntity> all = new ArrayList<>(offers.findByRideId(ride.getId()));
+        LocalDate date = rideDate(ride);
+        Map<Long, UserEntity> drivers = driversById(ride);
         for (RideOfferEntity o : all) {
             if (o.getDriverId().equals(priorDriverId)) {
-                reset(o, true);
-                push.notifyUser(o.getDriverId(), "Resan ändrades", passengerName + " ändrade resan — bekräfta.");
+                if (isEligibleDriver(drivers.get(priorDriverId), date)) {
+                    reset(o, true);
+                    push.notifyUser(o.getDriverId(), "Resan ändrades", passengerName + " ändrade resan — bekräfta.");
+                } else {
+                    o.setStatus(OfferStatus.WITHDRAWN); // away on the new date: cannot take it
+                    o.setRespondedAt(clock.instant());
+                    offers.save(o);
+                }
             }
         }
         for (RideOfferEntity o : all) {
-            if (!o.getDriverId().equals(priorDriverId) && REOFFERABLE.contains(o.getStatus())) {
+            if (!o.getDriverId().equals(priorDriverId) && REOFFERABLE.contains(o.getStatus())
+                && isEligibleDriver(drivers.get(o.getDriverId()), date)) {
                 reset(o, false);
                 push.notifyUser(o.getDriverId(), "Resa väntar", "En resa har ändrats och väntar på en förare.");
             }
@@ -241,18 +295,24 @@ public class RideOfferService {
         }
     }
 
-    /** Drivers a keep-waiting would (re-)offer: expired/withdrawn offers, plus not-yet-offered drivers for NOW rides. */
+    /**
+     * Drivers a keep-waiting would (re-)offer: EXPIRED offers, plus drivers never offered (booking rules: NOW needs
+     * available-now). Never WITHDRAWN/DECLINED offers (e.g. the driver who returned the ride) and never away drivers.
+     */
     private List<UserEntity> keepWaitingCandidates(RideEntity ride) {
         Map<Long, RideOfferEntity> existing = byDriver(ride.getId());
-        LocalDate date = today();
+        LocalDate date = rideDate(ride);
         List<UserEntity> out = new ArrayList<>();
         for (UserEntity d : driverPool(ride)) {
+            if (d.isAwayOn(date)) {
+                continue;
+            }
             RideOfferEntity o = existing.get(d.getId());
             if (o != null) {
-                if (REOFFERABLE.contains(o.getStatus())) {
+                if (o.getStatus() == OfferStatus.EXPIRED) {
                     out.add(d);
                 }
-            } else if (ride.getKind() == RideKind.NOW && !d.isAwayOn(date)) {
+            } else if (ride.getKind() == RideKind.SCHEDULED || d.isDriverAvailableNow()) {
                 out.add(d);
             }
         }

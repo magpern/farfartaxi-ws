@@ -59,9 +59,10 @@ driver: `DRIVER_HERE` ("Jag är här"), `DRIVER_TWO_MIN` ("Är där om 2 min"), 
 Passenger: `POST /api/rides` (book), `PATCH /api/rides/{id}`, `POST /api/rides/{id}/cancel {reason?, confirm?}`, `POST /api/rides/{id}/keep-waiting`.
 
 ## Ride DTO (`RideResponse`, additive)
-Existing fields plus: `kind`, `pickupNote`, `urgent`, `passengerName`, `passengerPhone`, `driverPhone`, `driverPhotoUrl`, `driverVehicleNote`, `arrivedAt`, `pickedUpAt`, `lastEditMaterial` (only on PATCH responses, else null), `myOfferStatus` (for drivers, else null), `availableActions` (string list computed for the caller: `CANCEL, CANCEL_CONFIRM, EDIT, KEEP_WAITING, ACCEPT, DECLINE, RETURN, START, ARRIVE, PICKUP, COMPLETE, MESSAGE`).
+Existing fields plus: `kind`, `pickupNote`, `urgent`, `passengerName`, `passengerPhone`, `driverPhone`, `driverPhotoUrl`, `driverVehicleNote`, `arrivedAt`, `pickedUpAt`, `lastEditMaterial` (only on PATCH responses, else null), `myOfferStatus` (for drivers, else null), `offerPriority` (boolean; the driver's own offer is flagged priority, null when the caller has no offer), `availableActions` (string list computed for the caller: `CANCEL, CANCEL_CONFIRM, EDIT, KEEP_WAITING, ACCEPT, DECLINE, RETURN, START, ARRIVE, PICKUP, COMPLETE, MESSAGE`).
 Phones are only included for participants of an accepted ride (passenger sees driver phone and vice versa).
 
 ## Rollback note
 V6 renames status values. Rolling back to v1.5.0 requires mapping statuses back first:
-`UPDATE rides SET status='PENDING_OPEN' WHERE status IN ('REQUESTED','NO_DRIVER'); UPDATE rides SET status='IN_PROGRESS' WHERE status IN ('EN_ROUTE','ARRIVED','PICKED_UP');`
+`UPDATE rides SET status='REJECTED' WHERE status='NO_DRIVER'; UPDATE rides SET status='PENDING_OPEN' WHERE status='REQUESTED'; UPDATE rides SET status='IN_PROGRESS' WHERE status IN ('EN_ROUTE','ARRIVED','PICKED_UP');`
+Rolling forward again after a rollback requires re-running the forward status UPDATEs manually (`PENDING_OPEN→REQUESTED`, `IN_PROGRESS→EN_ROUTE`, `REJECTED→NO_DRIVER`); Flyway will not re-run V6. The V6 offer backfill (an OFFERED offer for each REQUESTED ride and every same-world driver/admin) only runs once, so open rides created by v1.5.0 after a rollback need offers inserted manually too.

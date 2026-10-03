@@ -18,6 +18,15 @@ public interface RideOfferRepository extends JpaRepository<RideOfferEntity, Long
     List<RideOfferEntity> findByDriverIdAndStatusIn(Long driverId, Collection<OfferStatus> statuses);
 
     @Modifying
+    @Query("update RideOfferEntity o set o.status = com.farfartaxi.backend.model.OfferStatus.VIEWED, o.viewedAt = :at "
+        + "where o.id = :id and o.status = com.farfartaxi.backend.model.OfferStatus.OFFERED")
+    int markViewedIfOffered(@Param("id") Long id, @Param("at") java.time.Instant at);
+
+    @Modifying
+    @Query("delete from RideOfferEntity o where o.driverId = :driverId")
+    void deleteByDriverId(@Param("driverId") Long driverId);
+
+    @Modifying
     @Query("delete from RideOfferEntity o where o.rideId = :rideId")
     void deleteByRideId(@Param("rideId") Long rideId);
 
