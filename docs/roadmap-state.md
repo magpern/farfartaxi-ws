@@ -41,7 +41,10 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
   - Postgres no longer published (5433 closed). Backend bound to 127.0.0.1:8081 only. Compose has no secret defaults (`:?required`).
   - Images pinned by tag+digest (v1.2.0) with rollback refs in compose comments.
   - Verified: admin login with new password 200, with old default 401; frontend 200; no new ERROR lines.
-- Code part: pending (approval flow, role checks, repo secret defaults).
+- **Incident (found by M0A review, 2026-10-03 16:51):** the initial JWT check compared only against `replace-this-...`. Re-check against all 4 JWT secret values ever published in the repo found that the production JWT secret **matched a published value** (forgeable tokens). Rotated immediately (64-char random, .env backup `.env.bak-20261003T165108`). Note: `docker compose up -d backend` did NOT recreate the container on an .env-only change; `--force-recreate` was required. Verified: container has new secret, token signed with old secret -> 401, new token -> 200, frontend 200. All users must log in once again.
+  - Lesson applied for the rest of the run: secret checks compare against every value ever published; after secret changes always `--force-recreate` and verify inside the container.
+- Code part: implemented (backend `ccff6b0`, frontend `0b5a60e`), deep review #1 NOT CLEAN (2 blocking: working placeholders in .env.example; JWT evidence gap -> resolved above). Review fixes in progress.
+- Parking lot additions from review: open unauthenticated proxies `/api/public/geocode/**` and `/api/public/route/**` (geocode search is removed in M3); no rate limit on registration.
 
 ## Deviations
 - None yet.
