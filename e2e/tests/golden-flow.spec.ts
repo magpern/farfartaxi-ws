@@ -89,30 +89,31 @@ test('golden flow: passenger books, driver accepts, starts and completes, passen
     await passenger.goto('/app')
     await pickAddress(passenger, 'Startadress', 'start', tag)
     await pickAddress(passenger, 'Destination', 'slut', tag)
-    await passenger.getByRole('button', { name: 'Åka nu' }).click()
+    await passenger.getByRole('button', { name: /^Åk(a)? nu$/ }).click()
     await expect(passenger).toHaveURL(/\/app\/bekraftelse/)
     await expect(passenger.getByText(`E2E Start ${tag}`).first()).toBeVisible()
 
     // Driver logs in (second context) and sees the open ride.
     await loginViaUi(driver, ids.driver)
     await driver.goto('/app/forare')
-    const openRide = driver
-      .locator('article.ride-item')
-      .filter({ hasText: `E2E Start ${tag}` })
-      .filter({ has: driver.getByRole('button', { name: 'Acceptera' }) })
-    await expect(openRide).toBeVisible()
-    await openRide.getByRole('button', { name: 'Acceptera' }).click()
+    const rideCard = driver.locator('article.ride-item').filter({ hasText: `E2E Start ${tag}` })
+    await expect(rideCard).toBeVisible()
+    await rideCard.getByRole('button', { name: 'Ta resan' }).click()
+    // Proximity warning appears when other test rides are close in time; confirm it if shown.
+    const proximity = driver.getByRole('button', { name: 'Ta ändå' })
+    await proximity.waitFor({ state: 'visible', timeout: 3_000 }).then(() => proximity.click(), () => {})
 
-    const myRide = driver.locator('article.ride-item').filter({ hasText: `E2E Start ${tag}` })
-    await myRide.getByRole('button', { name: 'Starta körning' }).click()
-    await expect(myRide.getByRole('button', { name: 'Klar' })).toBeVisible()
-    await myRide.getByRole('button', { name: 'Klar' }).click()
+    await expect(rideCard.getByRole('button', { name: 'Kör nu' })).toBeVisible()
+    await rideCard.getByRole('button', { name: 'Kör nu' }).click()
+    await rideCard.getByRole('button', { name: 'Jag är framme' }).click()
+    await rideCard.getByRole('button', { name: 'Hämtat upp' }).click()
+    await rideCard.getByRole('button', { name: 'Klar', exact: true }).click()
     await expect(driver.getByText('Resan är klar.')).toBeVisible()
 
     // Passenger sees the completed ride in their rides list.
     await passenger.goto('/app/resor')
     const row = passenger.locator('article.ride-item').filter({ hasText: `E2E Start ${tag}` })
-    await expect(row).toContainText('COMPLETED')
+    await expect(row).toContainText('Klar')
   } finally {
     await passengerCtx.close()
     await driverCtx.close()

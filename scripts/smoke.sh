@@ -20,14 +20,15 @@ DRIVER_EMAIL="${SMOKE_DRIVER_EMAIL:-test-driver@farfartaxi.invalid}"
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 
-# req METHOD PATH [TOKEN] [BODY] -> sets CODE and BODY_OUT
+# req METHOD PATH [TOKEN] [BODY] [IDEMPOTENCY_KEY] -> sets CODE and BODY_OUT
 # Authorization header goes in a mode-600 curl config file (-K); the body is fed on stdin.
 req() {
-  local method="$1" path="$2" token="${3:-}" body="${4:-}" out
+  local method="$1" path="$2" token="${3:-}" body="${4:-}" idem="${5:-}" out
   local args=(-sS -m 30 -o - -w $'\n%{http_code}' -X "$method" -K "$CURL_CFG")
   : > "$CURL_CFG"
   printf 'header = "Accept: application/json"\n' >> "$CURL_CFG"
   [ -n "$token" ] && printf 'header = "Authorization: Bearer %s"\n' "$token" >> "$CURL_CFG"
+  [ -n "$idem" ] && printf 'header = "Idempotency-Key: %s"\n' "$idem" >> "$CURL_CFG"
   if [ -n "$body" ]; then
     printf 'header = "Content-Type: application/json"\n' >> "$CURL_CFG"
     args+=(--data-binary @-)
@@ -75,11 +76,17 @@ PID=$(jget 'd["id"]')
 [ -n "$PID" ] || fail "could not read passenger id"
 
 WHEN=$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)+d.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
-BOOK=$(WHEN="$WHEN" python3 -c 'import json,os; print(json.dumps({"fromAddress":"Smoke Start 1, Test","fromLat":59.3293,"fromLon":18.0686,"toAddress":"Smoke Slut 2, Test","toLat":59.3400,"toLon":18.0900,"scheduledAt":os.environ["WHEN"]}))')
-req POST /api/rides "$PTOKEN" "$BOOK"; expect "book ride" 200
+BOOK=$(WHEN="$WHEN" python3 -c 'import json,os; print(json.dumps({"kind":"SCHEDULED","fromAddress":"Smoke Start 1, Test","fromLat":59.3293,"fromLon":18.0686,"toAddress":"Smoke Slut 2, Test","toLat":59.3400,"toLon":18.0900,"scheduledAt":os.environ["WHEN"]}))')
+IDEM="smoke-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+req POST /api/rides "$PTOKEN" "$BOOK" "$IDEM"; expect "book ride" 200
 RID=$(jget 'd["id"]')
 [ -n "$RID" ] || fail "book ride returned no id"
+[ "$(jget 'd["status"]')" = "REQUESTED" ] || fail "new ride is not REQUESTED"
 ok "booked ride $RID"
+
+req POST /api/rides "$PTOKEN" "$BOOK" "$IDEM"; expect "book ride (idempotent repeat)" 200
+[ "$(jget 'd["id"]')" = "$RID" ] || fail "idempotent repeat returned a different ride id (duplicate booking)"
+ok "idempotent repeat returned same ride $RID"
 
 req GET /api/driver/rides/open "$DTOKEN"; expect "driver open rides" 200
 printf '%s' "$BODY_OUT" | RID="$RID" python3 -c 'import sys,json,os; sys.exit(0 if any(str(r["id"])==os.environ["RID"] for r in json.load(sys.stdin)) else 1)' \
@@ -94,13 +101,19 @@ if bad: print("foreign ride ids: %s" % bad, file=sys.stderr); sys.exit(1)' \
   || fail "test driver can see rides that are not the test passenger's (isolation broken)"
 ok "driver open-rides list contains only test-passenger rides"
 
-req POST "/api/driver/rides/$RID/accept" "$DTOKEN"; expect "accept" 200
+req POST "/api/driver/rides/$RID/accept" "$DTOKEN" '{"confirmProximity":true}'; expect "accept" 200
+[ "$(jget 'd["status"]')" = "ACCEPTED" ] || fail "accept did not return ACCEPTED"
 req POST "/api/driver/rides/$RID/start" "$DTOKEN"; expect "start" 200
+[ "$(jget 'd["status"]')" = "EN_ROUTE" ] || fail "start did not return EN_ROUTE"
+req POST "/api/driver/rides/$RID/arrive" "$DTOKEN"; expect "arrive" 200
+[ "$(jget 'd["status"]')" = "ARRIVED" ] || fail "arrive did not return ARRIVED"
 req POST "/api/driver/rides/$RID/location" "$DTOKEN" '{"lat":59.335,"lon":18.08}'
 case "$CODE" in 200|204) ;; *) fail "location: expected 200/204, got $CODE";; esac
+req POST "/api/driver/rides/$RID/pickup" "$DTOKEN"; expect "pickup" 200
+[ "$(jget 'd["status"]')" = "PICKED_UP" ] || fail "pickup did not return PICKED_UP"
 req POST "/api/driver/rides/$RID/complete" "$DTOKEN"; expect "complete" 200
 [ "$(jget 'd["status"]')" = "COMPLETED" ] || fail "complete did not return COMPLETED"
-ok "accept/start/location/complete"
+ok "accept/start/arrive/location/pickup/complete"
 
 # Passenger sees it COMPLETED (a future-dated ride is listed under history=false until its time passes).
 FOUND=""
