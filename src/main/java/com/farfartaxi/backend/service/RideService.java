@@ -1,5 +1,6 @@
 package com.farfartaxi.backend.service;
 
+import com.farfartaxi.backend.api.dto.RideDtos.ActiveRideResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.BookRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.DriverStatsResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.EditRideRequest;
@@ -403,6 +404,55 @@ public class RideService {
             .stream()
             .map(r -> responses.toResponse(r, driver, null))
             .toList();
+    }
+
+    public List<RideResponse> driverHistory(Integer limit) {
+        UserEntity driver = currentUserService.requireUser();
+        requireRole(driver, Role.DRIVER);
+        int size = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
+        var page = org.springframework.data.domain.PageRequest.of(0, size,
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "scheduledAt", "id"));
+        return rideRepository.findByAcceptedByDriver_IdAndStatusInAndTest(driver.getId(),
+                java.util.EnumSet.of(RideStatus.COMPLETED, RideStatus.CANCELLED), policy.world(driver), page)
+            .stream().map(r -> responses.toResponse(r, driver, null)).toList();
+    }
+
+    /** The caller's single most relevant active ride (driver view first), or empty. */
+    public Optional<ActiveRideResponse> activeRide() {
+        UserEntity user = currentUserService.requireUser();
+        Instant now = clock.instant();
+        boolean world = policy.world(user);
+        java.util.Comparator<RideEntity> byTime = java.util.Comparator.comparing(RideEntity::getScheduledAt);
+        if (user.getRole() == Role.DRIVER || user.getRole() == Role.ADMIN) {
+            List<RideEntity> mine = rideRepository.findByAcceptedByDriver_IdAndStatusInAndTestOrderByScheduledAtAsc(
+                user.getId(), RideStatus.ASSIGNED, world);
+            Optional<RideEntity> pick = mine.stream()
+                .filter(r -> r.getStatus() != RideStatus.ACCEPTED)
+                .max(java.util.Comparator.comparingInt((RideEntity r) -> r.getStatus().ordinal()).thenComparing(byTime.reversed()));
+            if (pick.isEmpty()) {
+                Instant horizon = now.plus(Duration.ofMinutes(60));
+                pick = mine.stream()
+                    .filter(r -> r.getStatus() == RideStatus.ACCEPTED && !r.getScheduledAt().isAfter(horizon))
+                    .min(byTime);
+            }
+            if (pick.isPresent()) {
+                return Optional.of(new ActiveRideResponse("DRIVER", responses.toResponse(pick.get(), user, null)));
+            }
+        }
+        List<RideEntity> own = rideRepository.findByPassengerIdAndStatusInAndTest(user.getId(),
+            java.util.EnumSet.of(RideStatus.ACCEPTED, RideStatus.EN_ROUTE, RideStatus.ARRIVED, RideStatus.PICKED_UP,
+                RideStatus.REQUESTED, RideStatus.NO_DRIVER), world);
+        Optional<RideEntity> pick = own.stream().filter(r -> RideStatus.ASSIGNED.contains(r.getStatus()))
+            .max(java.util.Comparator.comparingInt((RideEntity r) -> r.getStatus().ordinal()).thenComparing(byTime.reversed()));
+        if (pick.isEmpty()) {
+            pick = own.stream().filter(r -> r.getStatus() == RideStatus.REQUESTED).min(byTime);
+        }
+        if (pick.isEmpty()) {
+            Instant cutoff = now.minus(Duration.ofHours(2));
+            pick = own.stream().filter(r -> r.getStatus() == RideStatus.NO_DRIVER && r.getScheduledAt().isAfter(cutoff))
+                .max(byTime);
+        }
+        return pick.map(r -> new ActiveRideResponse("PASSENGER", responses.toResponse(r, user, null)));
     }
 
     @Transactional

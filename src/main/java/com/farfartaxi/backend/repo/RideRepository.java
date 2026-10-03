@@ -22,6 +22,10 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
 
     List<RideEntity> findByAcceptedByDriver_IdAndStatusInAndTestOrderByScheduledAtAsc(Long driverId, Collection<RideStatus> statuses, boolean test);
 
+    List<RideEntity> findByAcceptedByDriver_IdAndStatusInAndTest(Long driverId, Collection<RideStatus> statuses, boolean test, org.springframework.data.domain.Pageable page);
+
+    List<RideEntity> findByPassengerIdAndStatusInAndTest(Long passengerId, Collection<RideStatus> statuses, boolean test);
+
     List<RideEntity> findByAcceptedByDriver_IdAndTest(Long driverId, boolean test);
 
     List<RideEntity> findByStatus(RideStatus status);
