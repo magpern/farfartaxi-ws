@@ -23,22 +23,28 @@ public class AuthService {
     private final JwtService jwtService;
     private final CurrentUserService currentUserService;
     private final GoogleIdTokenService googleIdTokenService;
+    private final RefreshTokenService refreshTokenService;
+
+    /** Access-token response plus the raw refresh token (cookie only, never serialized in the body). */
+    public record AuthSession(AuthResponse response, String refreshToken) { }
 
     public AuthService(
         UserRepository userRepository,
         PasswordEncoder passwordEncoder,
         JwtService jwtService,
         CurrentUserService currentUserService,
-        GoogleIdTokenService googleIdTokenService
+        GoogleIdTokenService googleIdTokenService,
+        RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.currentUserService = currentUserService;
         this.googleIdTokenService = googleIdTokenService;
+        this.refreshTokenService = refreshTokenService;
     }
 
-    public AuthResponse register(RegisterRequest request) {
+    public AuthSession register(RegisterRequest request) {
         userRepository.findByEmailIgnoreCase(request.email()).ifPresent(existing -> {
             throw new AppException(HttpStatus.CONFLICT, "Email already registered");
         });
@@ -51,10 +57,10 @@ public class AuthService {
         user.setApproved(false);
         user.setMustChangePassword(false);
         user = userRepository.save(user);
-        return toAuthResponse(user);
+        return toSession(user, false);
     }
 
-    public AuthResponse login(LoginRequest request) {
+    public AuthSession login(LoginRequest request) {
         UserEntity user = userRepository.findByEmailIgnoreCase(request.email())
             .orElseThrow(() -> new AppException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
         if (user.getPasswordHash() == null) {
@@ -66,11 +72,11 @@ public class AuthService {
         if (!user.isEnabled()) {
             throw new AppException(HttpStatus.FORBIDDEN, "Account disabled");
         }
-        return toAuthResponse(user);
+        return toSession(user, false);
     }
 
     @Transactional
-    public AuthResponse loginWithGoogle(String credentialJwt) {
+    public AuthSession loginWithGoogle(String credentialJwt) {
         if (!googleIdTokenService.isConfigured()) {
             throw new AppException(HttpStatus.SERVICE_UNAVAILABLE, "Google sign-in is not configured");
         }
@@ -85,7 +91,7 @@ public class AuthService {
             if (!user.isEnabled()) {
                 throw new AppException(HttpStatus.FORBIDDEN, "Account disabled");
             }
-            return toAuthResponse(userRepository.save(user));
+            return toSession(userRepository.save(user), false);
         }
 
         UserEntity byEmail = userRepository.findByEmailIgnoreCase(gp.email()).orElse(null);
@@ -96,6 +102,7 @@ public class AuthService {
             if (!byEmail.isEnabled()) {
                 throw new AppException(HttpStatus.FORBIDDEN, "Account disabled");
             }
+            boolean revokeOthers = false;
             if (!byEmail.isApproved() && byEmail.getPasswordHash() != null) {
                 // Pre-hijack defence: a pending account with a local password may have been registered by someone
                 // other than the verified email owner. Only the verified Google identity may sign in from now on.
@@ -103,10 +110,11 @@ public class AuthService {
                 byEmail.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
                 byEmail.setMustChangePassword(false);
                 log.info("Cleared local password of pending user id={} on Google link", byEmail.getId());
+                revokeOthers = true;
             }
             byEmail.setGoogleSub(gp.sub());
             refreshGoogleProfile(byEmail, gp);
-            return toAuthResponse(userRepository.save(byEmail));
+            return toSession(userRepository.save(byEmail), revokeOthers);
         }
 
         UserEntity created = new UserEntity();
@@ -117,7 +125,7 @@ public class AuthService {
         created.setEnabled(true);
         created.setApproved(false);
         created.setMustChangePassword(false);
-        return toAuthResponse(userRepository.save(created));
+        return toSession(userRepository.save(created), false);
     }
 
     private static UserEntity refreshGoogleProfile(UserEntity user, GoogleIdTokenService.GoogleProfile gp) {
@@ -128,14 +136,14 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse setLocalPassword(SetPasswordRequest request) {
+    public AuthSession setLocalPassword(SetPasswordRequest request) {
         UserEntity user = currentUserService.requireUser();
         if (user.getPasswordHash() != null) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Password already set; use change password");
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
-        return toAuthResponse(userRepository.save(user));
+        return toSession(userRepository.save(user), true);
     }
 
     public void forgotPassword(String email) {
@@ -143,7 +151,7 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse changePassword(ChangePasswordRequest request) {
+    public AuthSession changePassword(ChangePasswordRequest request) {
         UserEntity user = currentUserService.requireUser();
         if (user.getPasswordHash() == null) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Use set-password to add a password first");
@@ -154,7 +162,7 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user.setMustChangePassword(false);
         user.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
-        return toAuthResponse(userRepository.save(user));
+        return toSession(userRepository.save(user), true);
     }
 
     public UserView me() {
@@ -167,7 +175,24 @@ public class AuthService {
         return new UserView(user.getId(), user.getEmail(), user.getFullName(), user.getRole().name(), mustPw, hasLocal, user.isApproved());
     }
 
-    private AuthResponse toAuthResponse(UserEntity user) {
+    private AuthSession toSession(UserEntity user, boolean revokeOthers) {
+        if (revokeOthers) {
+            refreshTokenService.revokeAllForUser(user.getId());
+        }
+        String refresh = refreshTokenService.issueNewFamily(user.getId(), currentUserAgent());
+        return new AuthSession(buildResponse(user), refresh);
+    }
+
+    /** Access token + user view for an already-authenticated user (used by refresh). */
+    public AuthResponse buildResponse(UserEntity user) {
         return new AuthResponse(jwtService.generateToken(user), toUserView(user));
+    }
+
+    static String currentUserAgent() {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
+            return sra.getRequest().getHeader("User-Agent");
+        }
+        return null;
     }
 }

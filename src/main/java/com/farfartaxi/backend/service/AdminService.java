@@ -15,8 +15,10 @@ public class AdminService {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AdminService.class);
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
+    private final RefreshTokenService refreshTokenService;
 
-    public AdminService(UserRepository userRepository, CurrentUserService currentUserService) {
+    public AdminService(UserRepository userRepository, CurrentUserService currentUserService, RefreshTokenService refreshTokenService) {
+        this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
         this.currentUserService = currentUserService;
     }
@@ -75,6 +77,23 @@ public class AdminService {
             user.setVehicleNote(request.vehicleNote());
         }
         return userRepository.save(user);
+    }
+
+    /** Revokes all refresh tokens and invalidates outstanding access tokens (credential version bump). */
+    @Transactional
+    public UserEntity logoutEverywhere(Long userId) {
+        UserEntity actor = currentUserService.requireUser();
+        UserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+        java.time.Instant now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        if (user.getCredentialsChangedAt() != null && !now.isAfter(user.getCredentialsChangedAt())) {
+            now = user.getCredentialsChangedAt().plusMillis(1);
+        }
+        user.setCredentialsChangedAt(now);
+        user = userRepository.save(user);
+        refreshTokenService.revokeAllForUser(userId);
+        log.info("Admin id={} logged out everywhere user id={}", actor.getId(), userId);
+        return user;
     }
 
     @Transactional

@@ -10,6 +10,16 @@ import com.farfartaxi.backend.api.dto.AuthDtos.SetPasswordRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.UserView;
 import com.farfartaxi.backend.service.AuthService;
 import jakarta.validation.Valid;
+import com.farfartaxi.backend.service.AuthService.AuthSession;
+import com.farfartaxi.backend.service.RefreshTokenService;
+import com.farfartaxi.backend.service.RefreshTokenService.RefreshResult;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,30 +29,81 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    static final String REFRESH_COOKIE = "ft_refresh";
     private final AuthService authService;
+    private final RefreshTokenService refreshTokenService;
+    private final boolean cookieSecure;
 
-    public AuthController(AuthService authService) {
+    public AuthController(
+        AuthService authService,
+        RefreshTokenService refreshTokenService,
+        @Value("${app.auth.refresh-cookie-secure:true}") boolean cookieSecure
+    ) {
         this.authService = authService;
+        this.refreshTokenService = refreshTokenService;
+        this.cookieSecure = cookieSecure;
+    }
+
+    private ResponseCookie cookie(String value, long maxAgeSeconds) {
+        return ResponseCookie.from(REFRESH_COOKIE, value)
+            .httpOnly(true)
+            .secure(cookieSecure)
+            .sameSite("Strict")
+            .path("/api/auth")
+            .maxAge(maxAgeSeconds)
+            .build();
+    }
+
+    private ResponseEntity<AuthResponse> withCookie(AuthSession session) {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, cookie(session.refreshToken(), refreshTokenService.lifetime().toSeconds()).toString())
+            .body(session.response());
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(
+        @CookieValue(name = REFRESH_COOKIE, required = false) String raw,
+        HttpServletRequest request
+    ) {
+        RefreshResult result = refreshTokenService.refresh(raw, request.getHeader(HttpHeaders.USER_AGENT));
+        if (result instanceof RefreshResult.Success ok) {
+            return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie(ok.newToken(), refreshTokenService.lifetime().toSeconds()).toString())
+                .body(authService.buildResponse(ok.user()));
+        }
+        if (result instanceof RefreshResult.Race) {
+            // Another tab already rotated; it holds the new cookie in the shared jar. Do not clear it.
+            return ResponseEntity.status(401).body(Map.of("error", "Refresh already in progress", "code", "REFRESH_RACE"));
+        }
+        return ResponseEntity.status(401)
+            .header(HttpHeaders.SET_COOKIE, cookie("", 0).toString())
+            .body(Map.of("error", "Session expired", "code", "REFRESH_INVALID"));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String raw) {
+        refreshTokenService.revokeByRawToken(raw);
+        return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, cookie("", 0).toString()).build();
     }
 
     @PostMapping("/register")
-    public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
-        return authService.register(request);
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+        return withCookie(authService.register(request));
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request);
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+        return withCookie(authService.login(request));
     }
 
     @PostMapping("/google")
-    public AuthResponse google(@Valid @RequestBody GoogleLoginRequest request) {
-        return authService.loginWithGoogle(request.credential());
+    public ResponseEntity<AuthResponse> google(@Valid @RequestBody GoogleLoginRequest request) {
+        return withCookie(authService.loginWithGoogle(request.credential()));
     }
 
     @PostMapping("/set-password")
-    public AuthResponse setPassword(@Valid @RequestBody SetPasswordRequest request) {
-        return authService.setLocalPassword(request);
+    public ResponseEntity<AuthResponse> setPassword(@Valid @RequestBody SetPasswordRequest request) {
+        return withCookie(authService.setLocalPassword(request));
     }
 
     @PostMapping("/forgot-password")
@@ -51,8 +112,8 @@ public class AuthController {
     }
 
     @PostMapping("/change-password")
-    public AuthResponse changePassword(@Valid @RequestBody ChangePasswordRequest request) {
-        return authService.changePassword(request);
+    public ResponseEntity<AuthResponse> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        return withCookie(authService.changePassword(request));
     }
 
     @GetMapping("/me")

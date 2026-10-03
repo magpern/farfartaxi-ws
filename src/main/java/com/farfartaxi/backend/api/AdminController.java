@@ -57,6 +57,11 @@ public class AdminController {
         return toDto(adminService.setRole(userId, Role.DRIVER));
     }
 
+    @PostMapping("/users/{userId}/logout-everywhere")
+    public Map<String, Object> logoutEverywhere(@PathVariable Long userId) {
+        return toDto(adminService.logoutEverywhere(userId));
+    }
+
     @PostMapping("/users/{userId}/approve")
     public Map<String, Object> approveUser(@PathVariable Long userId) {
         return toDto(adminService.approve(userId));

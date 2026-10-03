@@ -26,6 +26,7 @@ services:
       SPRING_DATASOURCE_USERNAME: e2e
       SPRING_DATASOURCE_PASSWORD: e2e-only-db-password
       APP_JWT_SECRET: e2e-only-jwt-secret-0123456789-not-for-real-use-xyzzy
+      APP_AUTH_REFRESH_COOKIE_SECURE: "false"
       FARFARTAXI_ADMIN_EMAIL: e2e-admin@farfartaxi.invalid
       FARFARTAXI_ADMIN_PASSWORD: e2e-only-admin-password-1
       FARFARTAXI_TEST_PASSENGER_PASSWORD: ${TEST_PASSENGER_PASSWORD:-e2e-only-passenger-pw-1}
