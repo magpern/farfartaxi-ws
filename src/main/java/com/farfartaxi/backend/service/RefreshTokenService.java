@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.UUID;
@@ -67,18 +68,13 @@ public class RefreshTokenService {
         repo.revokeAllForUser(userId, Instant.now(clock));
     }
 
-    /** Revokes the token presented (if known); no-op otherwise. */
+    /** Revokes the whole family of the token presented (if known); no-op otherwise. */
     @Transactional
     public void revokeByRawToken(String raw) {
         if (raw == null || raw.isBlank()) {
             return;
         }
-        repo.findByTokenHash(hash(raw)).ifPresent(t -> {
-            if (t.getRevokedAt() == null) {
-                t.setRevokedAt(Instant.now(clock));
-                repo.save(t);
-            }
-        });
+        repo.findByTokenHash(hash(raw)).ifPresent(t -> repo.revokeFamily(t.getFamilyId(), Instant.now(clock)));
     }
 
     /** Never throws for expected failures so that a family revocation is always committed. */
@@ -97,6 +93,11 @@ public class RefreshTokenService {
         }
         UserEntity user = userRepository.findById(t.getUserId()).orElse(null);
         if (user == null || !user.isEnabled()) {
+            return new RefreshResult.Invalid();
+        }
+        if (user.getCredentialsChangedAt() != null && t.getCreatedAt().isBefore(user.getCredentialsChangedAt())) {
+            // Defence in depth: token issued before the last credential change (e.g. concurrent with revokeAllForUser).
+            repo.revokeFamily(t.getFamilyId(), now);
             return new RefreshResult.Invalid();
         }
         Long id = t.getId();
@@ -125,7 +126,7 @@ public class RefreshTokenService {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        Instant now = Instant.now(clock);
+        Instant now = Instant.now(clock).truncatedTo(ChronoUnit.MILLIS);
         RefreshTokenEntity t = new RefreshTokenEntity();
         t.setUserId(userId);
         t.setTokenHash(hash(raw));
@@ -145,7 +146,7 @@ public class RefreshTokenService {
         }
     }
 
-    /** Deletes tokens expired/revoked/replaced more than 7 days ago. */
+    /** Deletes tokens expired or revoked more than 7 days ago (replaced rows are kept until they expire, for reuse detection). */
     @Transactional
     public int cleanup() {
         return repo.deleteStale(Instant.now(clock).minus(Duration.ofDays(7)));

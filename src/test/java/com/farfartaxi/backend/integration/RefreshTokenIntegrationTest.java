@@ -285,22 +285,85 @@ class RefreshTokenIntegrationTest {
     }
 
     @Test
+    void reuseDetectedAfterCleanupOfOldRotatedToken() throws Exception {
+        String c1 = login(newUser(false, Role.USER), PW).refreshValue();
+        String c2 = refresh(c1).refreshValue();
+        assertThat(c2).isNotNull();
+        clock.now = clock.now.plus(Duration.ofDays(10));
+        cleanupJob.cleanup();
+        // The rotated token is still known, so presenting it revokes the family.
+        assertThat(refresh(c1).status()).isEqualTo(401);
+        assertThat(refresh(c2).status()).isEqualTo(401);
+    }
+
+    @Test
+    void logoutWithRotatedTokenRevokesWholeFamily() throws Exception {
+        String c1 = login(newUser(false, Role.USER), PW).refreshValue();
+        String c2 = refresh(c1).refreshValue();
+        assertThat(send("/api/auth/logout", null, c1, null).status()).isEqualTo(204);
+        assertThat(refresh(c2).status()).isEqualTo(401);
+    }
+
+    @Test
+    void logoutWithCurrentTokenRevokesFamily() throws Exception {
+        String c1 = login(newUser(false, Role.USER), PW).refreshValue();
+        String c2 = refresh(c1).refreshValue();
+        assertThat(send("/api/auth/logout", null, c2, null).status()).isEqualTo(204);
+        assertThat(refresh(c2).status()).isEqualTo(401);
+        assertThat(refresh(c1).status()).isEqualTo(401);
+    }
+
+    @Test
+    void tokenCreatedBeforeCredentialsChangeIsRejectedAndFamilyRevoked() throws Exception {
+        String email = newUser(false, Role.USER);
+        String c1 = login(email, PW).refreshValue();
+        UserEntity u = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+        u.setCredentialsChangedAt(clock.now.plusSeconds(5).truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+        userRepository.save(u);
+        Resp r = refresh(c1);
+        assertThat(r.status()).isEqualTo(401);
+        assertThat(r.json().get("code").asText()).isEqualTo("REFRESH_INVALID");
+        assertThat(tokenRepository.findByTokenHash(RefreshTokenServiceHashHelper.hash(c1)).orElseThrow().getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void tokensIssuedRightAfterPasswordChangeAreAccepted() throws Exception {
+        String email = newUser(false, Role.USER);
+        Resp a = login(email, PW);
+        Resp change = send("/api/auth/change-password", a.json().get("token").asText(), null,
+            Map.of("oldPassword", PW, "newPassword", "NewPassw0rd!2"));
+        assertThat(refresh(change.refreshValue()).status()).isEqualTo(200);
+        assertThat(refresh(login(email, "NewPassw0rd!2").refreshValue()).status()).isEqualTo(200);
+    }
+
+    @Test
     void cleanupDeletesOnlyOldTokens() {
         Long uid = userRepository.findByEmailIgnoreCase("admin@test.local").orElseThrow().getId();
         Instant now = Instant.now();
         RefreshTokenEntity keepActive = tok(uid, "k1", now.plus(Duration.ofDays(30)), null, null);
         RefreshTokenEntity keepRecentExpired = tok(uid, "k2", now.minus(Duration.ofDays(2)), null, null);
+        RefreshTokenEntity keepReplaced = tok(uid, "k4", now.plus(Duration.ofDays(30)), null, now.minus(Duration.ofDays(8)));
         RefreshTokenEntity keepRecentRevoked = tok(uid, "k3", now.plus(Duration.ofDays(30)), now.minus(Duration.ofDays(2)), null);
         RefreshTokenEntity delExpired = tok(uid, "d1", now.minus(Duration.ofDays(8)), null, null);
         RefreshTokenEntity delRevoked = tok(uid, "d2", now.plus(Duration.ofDays(30)), now.minus(Duration.ofDays(8)), null);
-        RefreshTokenEntity delReplaced = tok(uid, "d3", now.plus(Duration.ofDays(30)), null, now.minus(Duration.ofDays(8)));
         int n = cleanupJob.cleanup();
-        assertThat(n).isGreaterThanOrEqualTo(3);
-        for (RefreshTokenEntity k : List.of(keepActive, keepRecentExpired, keepRecentRevoked)) {
+        assertThat(n).isGreaterThanOrEqualTo(2);
+        for (RefreshTokenEntity k : List.of(keepActive, keepRecentExpired, keepRecentRevoked, keepReplaced)) {
             assertThat(tokenRepository.findById(k.getId())).isPresent();
         }
-        for (RefreshTokenEntity d : List.of(delExpired, delRevoked, delReplaced)) {
+        for (RefreshTokenEntity d : List.of(delExpired, delRevoked)) {
             assertThat(tokenRepository.findById(d.getId())).isEmpty();
+        }
+    }
+
+    static class RefreshTokenServiceHashHelper {
+        static String hash(String raw) {
+            try {
+                return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 

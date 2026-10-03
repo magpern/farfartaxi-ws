@@ -25,7 +25,11 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
     @Query("update RefreshTokenEntity t set t.revokedAt = :now where t.familyId = :familyId and t.revokedAt is null")
     int revokeFamily(@Param("familyId") String familyId, @Param("now") Instant now);
 
+    /**
+     * Deletes only rows that can no longer matter: expired, or belonging to a revoked family. Replaced-but-not-revoked
+     * rows are deliberately kept until they expire so that reuse of a stolen, rotated token is still detected.
+     */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("delete from RefreshTokenEntity t where t.expiresAt < :cutoff or t.revokedAt < :cutoff or t.replacedAt < :cutoff")
+    @Query("delete from RefreshTokenEntity t where t.expiresAt < :cutoff or t.revokedAt < :cutoff")
     int deleteStale(@Param("cutoff") Instant cutoff);
 }

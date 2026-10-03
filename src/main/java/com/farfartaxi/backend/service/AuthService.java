@@ -24,6 +24,7 @@ public class AuthService {
     private final CurrentUserService currentUserService;
     private final GoogleIdTokenService googleIdTokenService;
     private final RefreshTokenService refreshTokenService;
+    private final java.time.Clock clock;
 
     /** Access-token response plus the raw refresh token (cookie only, never serialized in the body). */
     public record AuthSession(AuthResponse response, String refreshToken) { }
@@ -34,8 +35,10 @@ public class AuthService {
         JwtService jwtService,
         CurrentUserService currentUserService,
         GoogleIdTokenService googleIdTokenService,
-        RefreshTokenService refreshTokenService
+        RefreshTokenService refreshTokenService,
+        java.time.Clock clock
     ) {
+        this.clock = clock;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -107,7 +110,7 @@ public class AuthService {
                 // Pre-hijack defence: a pending account with a local password may have been registered by someone
                 // other than the verified email owner. Only the verified Google identity may sign in from now on.
                 byEmail.setPasswordHash(null);
-                byEmail.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+                byEmail.setCredentialsChangedAt(java.time.Instant.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
                 byEmail.setMustChangePassword(false);
                 log.info("Cleared local password of pending user id={} on Google link", byEmail.getId());
                 revokeOthers = true;
@@ -142,7 +145,7 @@ public class AuthService {
             throw new AppException(HttpStatus.BAD_REQUEST, "Password already set; use change password");
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
-        user.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+        user.setCredentialsChangedAt(java.time.Instant.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
         return toSession(userRepository.save(user), true);
     }
 
@@ -161,7 +164,7 @@ public class AuthService {
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user.setMustChangePassword(false);
-        user.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+        user.setCredentialsChangedAt(java.time.Instant.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
         return toSession(userRepository.save(user), true);
     }
 

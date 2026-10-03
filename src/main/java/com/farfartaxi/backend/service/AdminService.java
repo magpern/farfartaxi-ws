@@ -16,8 +16,10 @@ public class AdminService {
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
     private final RefreshTokenService refreshTokenService;
+    private final java.time.Clock clock;
 
-    public AdminService(UserRepository userRepository, CurrentUserService currentUserService, RefreshTokenService refreshTokenService) {
+    public AdminService(UserRepository userRepository, CurrentUserService currentUserService, RefreshTokenService refreshTokenService, java.time.Clock clock) {
+        this.clock = clock;
         this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
         this.currentUserService = currentUserService;
@@ -85,7 +87,7 @@ public class AdminService {
         UserEntity actor = currentUserService.requireUser();
         UserEntity user = userRepository.findById(userId)
             .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
-        java.time.Instant now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        java.time.Instant now = java.time.Instant.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
         if (user.getCredentialsChangedAt() != null && !now.isAfter(user.getCredentialsChangedAt())) {
             now = user.getCredentialsChangedAt().plusMillis(1);
         }
