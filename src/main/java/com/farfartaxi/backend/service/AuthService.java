@@ -100,7 +100,7 @@ public class AuthService {
                 // Pre-hijack defence: a pending account with a local password may have been registered by someone
                 // other than the verified email owner. Only the verified Google identity may sign in from now on.
                 byEmail.setPasswordHash(null);
-                byEmail.setCredentialsChangedAt(java.time.Instant.now());
+                byEmail.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
                 byEmail.setMustChangePassword(false);
                 log.info("Cleared local password of pending user id={} on Google link", byEmail.getId());
             }
@@ -134,7 +134,7 @@ public class AuthService {
             throw new AppException(HttpStatus.BAD_REQUEST, "Password already set; use change password");
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
-        user.setCredentialsChangedAt(java.time.Instant.now());
+        user.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
         return toAuthResponse(userRepository.save(user));
     }
 
@@ -153,7 +153,7 @@ public class AuthService {
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user.setMustChangePassword(false);
-        user.setCredentialsChangedAt(java.time.Instant.now());
+        user.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
         return toAuthResponse(userRepository.save(user));
     }
 

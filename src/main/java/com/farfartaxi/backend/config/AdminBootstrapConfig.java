@@ -43,7 +43,7 @@ public class AdminBootstrapConfig {
             existing.setRole(Role.ADMIN);
             if (existing.getPasswordHash() == null || !passwordEncoder.matches(adminPassword, existing.getPasswordHash())) {
                 existing.setPasswordHash(passwordEncoder.encode(adminPassword));
-                existing.setCredentialsChangedAt(java.time.Instant.now());
+                existing.setCredentialsChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
             }
             existing.setFullName(adminName);
             existing.setEnabled(true);

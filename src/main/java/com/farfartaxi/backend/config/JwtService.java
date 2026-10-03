@@ -44,7 +44,11 @@ public class JwtService {
 
     public String generateToken(UserEntity user) {
         Instant now = Instant.now();
-        return Jwts.builder()
+        var builder = Jwts.builder();
+        if (user.getCredentialsChangedAt() != null) {
+            builder.claim("cv", user.getCredentialsChangedAt().toEpochMilli());
+        }
+        return builder
             .subject(user.getEmail())
             .claim("uid", user.getId())
             .claim("role", user.getRole().name())

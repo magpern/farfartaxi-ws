@@ -36,6 +36,12 @@ class ApprovalSecurityIntegrationTest {
     @LocalServerPort
     private int port;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.farfartaxi.backend.config.JwtService jwtService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.farfartaxi.backend.repo.UserRepository userRepository;
+
     @MockitoBean
     private GoogleIdTokenService googleIdTokenService;
 
@@ -146,7 +152,6 @@ class ApprovalSecurityIntegrationTest {
             "email", "victim@test.local", "password", "Password123!", "fullName", "Attacker"), 200)
             .get("token").asText();
         send("GET", "/api/auth/me", attackerToken, null, 200);
-        Thread.sleep(1100); // JWT iat has second precision
 
         when(googleIdTokenService.isConfigured()).thenReturn(true);
         when(googleIdTokenService.verify("cred-v")).thenReturn(Optional.of(
@@ -166,10 +171,28 @@ class ApprovalSecurityIntegrationTest {
     }
 
     @Test
+    void tokenMintedFromPreChangeStateInSameInstantIsRejected() throws Exception {
+        send("POST", "/api/auth/register", null, Map.of(
+            "email", "race@test.local", "password", "Password123!", "fullName", "Attacker"), 200);
+        // Simulates a login that raced the credential change: token built from the pre-change user state.
+        String raceToken = jwtService.generateToken(userRepository.findByEmailIgnoreCase("race@test.local").orElseThrow());
+        send("GET", "/api/auth/me", raceToken, null, 200);
+
+        when(googleIdTokenService.isConfigured()).thenReturn(true);
+        when(googleIdTokenService.verify("cred-r")).thenReturn(Optional.of(
+            new GoogleIdTokenService.GoogleProfile("sub-race", "race@test.local", "Victim", true)));
+        String victimToken = send("POST", "/api/auth/google", null, Map.of("credential", "cred-r"), 200)
+            .get("token").asText();
+
+        send("POST", "/api/auth/set-password", raceToken, Map.of("newPassword", "Attacker123!"), 401);
+        send("GET", "/api/auth/me", raceToken, null, 401);
+        send("GET", "/api/auth/me", victimToken, null, 200);
+    }
+
+    @Test
     void changePasswordRevokesOldTokenAndReturnsWorkingNewOne() throws Exception {
         String adminToken = loginToken("admin@test.local", "Admin123!Test");
         String oldToken = approvedUserToken(adminToken, "changer@test.local");
-        Thread.sleep(1100);
         JsonNode res = send("POST", "/api/auth/change-password", oldToken, Map.of(
             "oldPassword", "Password123!", "newPassword", "NewPassword123!"), 200);
         String newToken = res.get("token").asText();
