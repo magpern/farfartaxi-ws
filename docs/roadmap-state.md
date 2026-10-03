@@ -17,15 +17,16 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | Version | Milestone | Purpose |
 |---|---|---|
 | V3 | M0A | users.approved, credentials_changed_at, version (deployed) |
-| V4 | M0B | test identities (users.is_test, rides.is_test) |
+| V4 | M0B | test identities (users.is_test, rides.is_test) (deployed) |
+| V5 | M0C | refresh_tokens |
 
 ## Milestones
 | Milestone | Status |
 |---|---|
 | M0A Security containment | **done** (v1.3.0, deployed 2026-10-03 17:13) |
 
-| M0B Baseline + safety net | in progress |
-| M0C Auth modernization | pending |
+| M0B Baseline + safety net | **done** (v1.4.0, deployed 2026-10-03 ~17:55) |
+| M0C Auth modernization | in progress |
 | M1 Core ride model | pending |
 | M2 Mobile UX shell | pending |
 | M3 Search and places | pending |
@@ -52,5 +53,14 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Production gates (public URL): admin login ok, old default admin password 401; fresh registration approved=false, 403 PENDING_APPROVAL on /api/driver/rides/open, /api/rides/my, /api/saved-places, POST /api/rides; /me 200; after approval USER 403 on open rides, 200 on own rides; test user deleted; 5433 and 8081 closed from LAN; frontend 200; 0 ERROR log lines. Temporary .env backups deleted.
 - Parking lot additions from review: open unauthenticated proxies `/api/public/geocode/**` and `/api/public/route/**` (geocode search is removed in M3); no rate limit on registration.
 
+## M0B evidence
+- Work packages: WP1b test identities + RideAccessPolicy + ride_events + cleanup (Sonnet), WP1a actuator/MDC/metrics/version (Sonnet, worktree), WP2 web ESLint/Vitest/CI (Sonnet), WP3 e2e/smoke/CI (Sonnet, worktree); master integration (world-tagged transition metric, framework errors -> real status).
+- Review (Opus): CLEAN; non-blocking fixes applied (test accounts cannot become/act as admin, smoke.sh keeps secrets off argv, push recipient world test, no emails in push logs, test accounts disabled when not configured).
+- PRs: ws #2 (`c4eb85f`), web #2, ws #3 (e2e Google-login fix, `fc6aa69`). Release `v1.4.0`.
+- Deployed: backend `v1.4.0@sha256:130475f68f8f560034955c6bf523bf2570108363a4285bb64a3a55999c81ea41`, frontend `v1.4.0@sha256:bdfe129e9684c93d5c46a79c595c6961d27b38c52e4106b05437dfc8ae44b88c`; pre-deploy dump `backups/*-pre-v1.4.0.dump`; Flyway V4 applied.
+- Test credentials generated randomly on the Pi into `.env` (chmod 600); never printed.
+- Gates: CI backend/frontend/e2e green; 38 backend tests incl. two-way isolation for every ride endpoint; `/actuator/prometheus` reachable only on the compose network (:8090), LAN 8090 closed, public `/actuator/*` serves only the SPA HTML; `X-Request-Id` echoed; `/api/public/version` = v1.4.0/c4eb85f; `scripts/smoke.sh` PASS against production; Playwright golden flow 2/2 PASS against production (after login-page fix); real rides unchanged (32, same max updated_at) before/after; transitions metric shows only `world="test"` increments; 0 push log lines; 0 ERROR lines.
+
 ## Deviations
+- M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
 - None yet.
