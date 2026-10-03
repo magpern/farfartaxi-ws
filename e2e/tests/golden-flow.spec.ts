@@ -53,7 +53,12 @@ async function newUserContext(browser: Browser, project: { use: Record<string, u
 
 async function loginViaUi(page: Page, u: { email: string; password: string }) {
   await page.goto('/login')
-  await page.getByLabel('E-post').fill(u.email)
+  // When Google sign-in is configured (production), the password form sits behind a toggle button.
+  const passwordToggle = page.getByRole('button', { name: /E-post och lösenord/ })
+  const emailField = page.getByLabel('E-post')
+  await expect(passwordToggle.or(emailField).first()).toBeVisible()
+  if (await passwordToggle.isVisible()) await passwordToggle.click()
+  await emailField.fill(u.email)
   await page.getByLabel('Lösenord').fill(u.password)
   await page.getByRole('button', { name: 'Fortsätt' }).click()
   await expect(page).toHaveURL(/\/app/)
