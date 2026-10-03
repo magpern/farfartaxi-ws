@@ -12,6 +12,7 @@ import com.farfartaxi.backend.model.RideEntity;
 import com.farfartaxi.backend.model.RideKind;
 import com.farfartaxi.backend.model.RideFeedbackEntity;
 import com.farfartaxi.backend.model.RideKind;
+import com.farfartaxi.backend.model.RideNotificationSentEntity;
 import com.farfartaxi.backend.model.RideOfferEntity;
 import com.farfartaxi.backend.model.RideStatus;
 import com.farfartaxi.backend.model.Role;
@@ -39,6 +40,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RideService {
     public static final String NOW_REPUSH = "NOW_REPUSH";
+    private static final int ETA_PUSH_MINUTES = 5;
     private static final Duration LEGACY_NOW_WINDOW = Duration.ofMinutes(10);
     private static final Duration NO_DRIVER_UPCOMING_GRACE = Duration.ofHours(24);
     private static final List<String> REMINDER_KINDS = List.of(RideTimerService.REMINDER_24H, RideTimerService.REMINDER_2H,
@@ -213,7 +215,8 @@ public class RideService {
         machine.transition(ride, RideStatus.CANCELLED, Actor.PASSENGER);
         Long driverId = ride.getAcceptedByDriver() != null ? ride.getAcceptedByDriver().getId() : null;
         if (st == RideStatus.REQUESTED) {
-            offers.pushToOpen(ride, "Resa avbokad", "Passageraren har avbokat resan.");
+            offers.pushToOpen(ride, PushCategory.RIDE_UPDATES, "RIDE_CANCELLED", "ride.cancelled",
+                java.util.List.of(PushArgs.firstName(ride.getPassenger().getFullName())));
         }
         offers.withdrawAll(ride);
         ride.setCancelReason(reason);
@@ -221,7 +224,8 @@ public class RideService {
         ride = rideRepository.save(ride);
         events.record(ride, user.getId(), RideEventRecorder.CANCELLED, reason);
         if (driverId != null) {
-            pushService.notifyUser(driverId, "Resa avbokad", "Passageraren har avbokat resan.");
+            pushService.send(driverId, PushCategory.RIDE_UPDATES, "RIDE_CANCELLED", rideId, "/app/forare", "ride.cancelled",
+                java.util.List.of(PushArgs.firstName(ride.getPassenger().getFullName())));
         }
         responses.publish(ride);
         return responses.toResponse(ride, user, null);
@@ -296,7 +300,7 @@ public class RideService {
                 if (timeChanged) {
                     offers.syncForTimeChange(ride, false);
                 } else {
-                    offers.pushToOpen(ride, "Resan ändrades", "En resa du kan ta har ändrats.");
+                    offers.pushToOpen(ride, PushCategory.RIDE_UPDATES, "RIDE_EDITED", "ride.edited_open", PushArgs.ride(ride));
                 }
             }
             case NO_DRIVER -> {
@@ -317,7 +321,9 @@ public class RideService {
                     notificationRepository.deleteByRideIdAndKind(ride.getId(), RideTimerService.DRIVER_REMINDER_30M);
                     offers.reofferAfterMaterialEdit(ride, driver.getId(), ride.getPassenger().getFullName());
                 } else {
-                    pushService.notifyUser(driver.getId(), "Resan ändrades", ride.getPassenger().getFullName() + " ändrade resan lite.");
+                    pushService.send(driver.getId(), PushCategory.RIDE_UPDATES, "RIDE_EDITED", ride.getId(),
+                        "/app/forare/kor/" + ride.getId(), "ride.edited_minor",
+                        java.util.List.of(PushArgs.firstName(ride.getPassenger().getFullName())));
                 }
             }
             default -> { }
@@ -502,7 +508,8 @@ public class RideService {
         }
         notificationRepository.deleteByRideIdAndKind(rideId, RideTimerService.DRIVER_REMINDER_30M); // new driver gets their own reminder
         events.record(ride, driver.getId(), RideEventRecorder.ACCEPTED);
-        pushService.notifyUser(ride.getPassenger().getId(), "Din resa accepterades", driver.getFullName() + " tar resan.");
+        pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, "ACCEPTED", rideId,
+            "/app/resa/" + rideId, "ride.accepted", java.util.List.of(PushArgs.firstName(driver.getFullName())));
         responses.publish(ride);
         return responses.toResponse(ride, driver, null);
     }
@@ -563,7 +570,7 @@ public class RideService {
         int open = offers.reofferAfterReturn(ride, driver.getId());
         ride = rideRepository.save(ride);
         events.record(ride, driver.getId(), RideEventRecorder.RETURNED, reason);
-        pushService.notifyUser(ride.getPassenger().getId(), "Föraren kan inte ta resan", "Vi söker en ny förare åt dig.");
+        // the passenger is not pushed: the ride is re-offered silently (still visible in the app)
         if (open == 0) {
             systemTransitions.toNoDriver(ride, "no drivers left after return");
         } else {
@@ -575,28 +582,29 @@ public class RideService {
     @Transactional
     public RideResponse startDriving(Long rideId) {
         return driverStep(rideId, RideStatus.EN_ROUTE, RideEventRecorder.STARTED, r -> r.setStartedAt(clock.instant()),
-            "Föraren har startat", "Resan är på väg.");
+            "EN_ROUTE", "ride.en_route", false);
     }
 
     @Transactional
     public RideResponse arrive(Long rideId) {
         return driverStep(rideId, RideStatus.ARRIVED, RideEventRecorder.ARRIVED, r -> r.setArrivedAt(clock.instant()),
-            "Föraren är framme", "Din förare väntar utanför.");
+            "ARRIVED", "ride.arrived", true);
     }
 
     @Transactional
     public RideResponse pickup(Long rideId) {
         return driverStep(rideId, RideStatus.PICKED_UP, RideEventRecorder.PICKED_UP, r -> r.setPickedUpAt(clock.instant()),
-            "Du är upphämtad", "Trevlig resa!");
+            null, null, false);
     }
 
     @Transactional
     public RideResponse complete(Long rideId) {
         return driverStep(rideId, RideStatus.COMPLETED, RideEventRecorder.COMPLETED, r -> r.setCompletedAt(clock.instant()),
-            "Resan klar", "Tack för att du bokade Farfartaxi.");
+            null, null, false);
     }
 
-    private RideResponse driverStep(Long rideId, RideStatus to, String eventType, Consumer<RideEntity> mutate, String title, String body) {
+    private RideResponse driverStep(Long rideId, RideStatus to, String eventType, Consumer<RideEntity> mutate,
+                                   String pushKind, String pushKey, boolean once) {
         UserEntity driver = currentUserService.requireUser();
         requireRole(driver, Role.DRIVER);
         RideEntity ride = mustFindRide(rideId, driver);
@@ -606,7 +614,10 @@ public class RideService {
         mutate.accept(ride);
         ride = rideRepository.save(ride);
         events.record(ride, driver.getId(), eventType);
-        pushService.notifyUser(ride.getPassenger().getId(), title, body);
+        if (pushKind != null && (!once || markNotificationSent(ride.getId(), pushKind))) {
+            pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, pushKind, ride.getId(),
+                "/app/resa/" + ride.getId(), pushKey, java.util.List.of(PushArgs.firstName(driver.getFullName())));
+        }
         responses.publish(ride);
         return responses.toResponse(ride, driver, null);
     }
@@ -640,8 +651,26 @@ public class RideService {
         ride.setEtaMinutes(calculateEtaMinutes(request.lat(), request.lon(),
             toPickup ? ride.getFromLat() : ride.getToLat(), toPickup ? ride.getFromLon() : ride.getToLon()));
         ride = rideRepository.save(ride);
+        if (st == RideStatus.EN_ROUTE && ride.getEtaMinutes() != null && ride.getEtaMinutes() <= ETA_PUSH_MINUTES
+            && markNotificationSent(rideId, "ETA_5MIN")) {
+            pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, "ETA_5MIN", rideId,
+                "/app/resa/" + rideId, "ride.eta_5min", java.util.List.of(PushArgs.firstName(driver.getFullName())));
+        }
         responses.publish(ride);
         return responses.toResponse(ride, driver, null);
+    }
+
+    /** Once-only guard (ride_notifications_sent): true when this call recorded the notification. */
+    private boolean markNotificationSent(Long rideId, String kind) {
+        if (notificationRepository.existsByRideIdAndKind(rideId, kind)) {
+            return false;
+        }
+        RideNotificationSentEntity n = new RideNotificationSentEntity();
+        n.setRideId(rideId);
+        n.setKind(kind);
+        n.setSentAt(clock.instant());
+        notificationRepository.save(n);
+        return true;
     }
 
     // ------------------------------------------------------------------ feedback / sharing

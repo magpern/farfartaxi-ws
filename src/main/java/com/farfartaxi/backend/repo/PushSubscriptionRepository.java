@@ -14,5 +14,6 @@ public interface PushSubscriptionRepository extends JpaRepository<PushSubscripti
     List<PushSubscriptionEntity> findByUserId(Long userId);
     List<PushSubscriptionEntity> findByUser_RoleAndUser_Test(com.farfartaxi.backend.model.Role role, boolean test);
     Optional<PushSubscriptionEntity> findByUserIdAndEndpoint(Long userId, String endpoint);
+    List<PushSubscriptionEntity> findByEndpoint(String endpoint);
     void deleteByUserIdAndEndpoint(Long userId, String endpoint);
 }

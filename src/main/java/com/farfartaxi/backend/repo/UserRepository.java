@@ -26,4 +26,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     long countByRoleAndEnabled(Role role, boolean enabled);
 
     List<UserEntity> findByEnabledTrueAndApprovedTrueAndTestOrderByFullNameAsc(boolean test);
+
+    /** Direct update: does not touch the optimistic-lock version of a user who is editing something else. */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("update UserEntity u set u.locale = :locale where u.id = :id")
+    void updateLocale(@org.springframework.data.repository.query.Param("id") Long id,
+                      @org.springframework.data.repository.query.Param("locale") String locale);
 }

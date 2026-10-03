@@ -71,7 +71,7 @@ class ObservabilityIntegrationTest {
         assertThat(r.statusCode()).as(r.body()).isEqualTo(200);
         assertThat(r.body()).contains("farfartaxi_places_search_seconds_count{outcome=\"ok\",provider=\"SL\"");
         assertThat(r.body()).contains("farfartaxi_ride_transitions_total{type=\"BOOKED\"");
-        assertThat(r.body()).contains("farfartaxi_push_total{outcome=\"ok\"");
+        assertThat(r.body()).contains("farfartaxi_push_total{kind=\"unknown\",outcome=\"ok\"");
         assertThat(registry.find("farfartaxi.places.search").tag("outcome", "ok").timer()).isNotNull();
     }
 

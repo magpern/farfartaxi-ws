@@ -103,18 +103,18 @@ public class RideTimerService {
                 rides.save(ride);
             }
             if (markSent(rideId, URGENT, now)) {
-                offers.pushToOpen(ride, "Brådskande resa", "En resa startar snart och saknar förare.");
+                offers.pushToOpen(ride, PushCategory.RIDE_REQUESTS, URGENT, "ride.urgent", PushArgs.ride(ride));
             }
         }
-        remindIfDue(ride, now, Duration.ofHours(24), REMINDER_24H, "Resa om 24 timmar", "En resa saknar fortfarande förare.");
-        remindIfDue(ride, now, Duration.ofHours(2), REMINDER_2H, "Resa om 2 timmar", "En resa saknar fortfarande förare.");
+        remindIfDue(ride, now, Duration.ofHours(24), REMINDER_24H, "ride.reminder_24h");
+        remindIfDue(ride, now, Duration.ofHours(2), REMINDER_2H, "ride.reminder_2h");
     }
 
     /** Only when the ride was booked before the reminder moment (otherwise the booking offer was the reminder). */
-    private void remindIfDue(RideEntity ride, Instant now, Duration before, String kind, String title, String body) {
+    private void remindIfDue(RideEntity ride, Instant now, Duration before, String kind, String key) {
         Instant due = ride.getScheduledAt().minus(before);
         if (!now.isBefore(due) && ride.getRequestedAt().isBefore(due) && markSent(ride.getId(), kind, now)) {
-            offers.pushToOpen(ride, title, body);
+            offers.pushToOpen(ride, PushCategory.REMINDERS, kind, key, PushArgs.ride(ride));
         }
     }
 
@@ -126,8 +126,9 @@ public class RideTimerService {
         }
         Instant at = ride.getScheduledAt();
         if (!now.isBefore(at.minus(Duration.ofMinutes(30))) && now.isBefore(at) && markSent(rideId, DRIVER_REMINDER_30M, now)) {
-            push.notifyUser(ride.getAcceptedByDriver().getId(), "Resa om 30 minuter",
-                "Hämta " + ride.getPassenger().getFullName() + " kl " + at.atZone(Geo.STOCKHOLM).toLocalTime().withSecond(0).withNano(0));
+            push.send(ride.getAcceptedByDriver().getId(), PushCategory.REMINDERS, DRIVER_REMINDER_30M, rideId,
+                "/app/forare/kor/" + rideId, "ride.driver_reminder",
+                java.util.List.of(PushArgs.firstName(ride.getPassenger().getFullName()), PushArgs.time(at)));
         }
     }
 

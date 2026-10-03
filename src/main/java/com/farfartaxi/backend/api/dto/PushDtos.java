@@ -13,4 +13,13 @@ public final class PushDtos {
         String userAgent
     ) {
     }
+
+    public record LocaleRequest(@NotBlank String locale) {
+    }
+
+    public record LocaleResponse(String locale) {
+    }
+
+    public record NotificationPrefsDto(boolean rideRequests, boolean rideUpdates, boolean reminders) {
+    }
 }

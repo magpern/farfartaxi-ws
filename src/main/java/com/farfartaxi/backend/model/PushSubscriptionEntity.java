@@ -12,7 +12,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 @Entity
-@Table(name = "push_subscriptions")
+@Table(name = "push_subscriptions", uniqueConstraints = @jakarta.persistence.UniqueConstraint(columnNames = {"user_id", "endpoint"}))
 public class PushSubscriptionEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,6 +40,10 @@ public class PushSubscriptionEntity {
     @PrePersist
     public void onCreate() {
         createdAt = Instant.now();
+    }
+
+    public Long getId() {
+        return id;
     }
 
     public void setUser(UserEntity user) {
