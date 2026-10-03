@@ -93,7 +93,8 @@ public final class RideDtos {
         Boolean lastEditMaterial,
         String myOfferStatus,
         Boolean offerPriority,
-        List<String> availableActions
+        List<String> availableActions,
+        boolean feedbackGiven
     ) {
     }
 

@@ -108,10 +108,12 @@ class RideHistoryAndActiveIntegrationTest extends M1TestSupport {
         assertThat(r.body().get("ride").get("id").asLong()).isEqualTo(id);
         assertThat(r.body().get("ride").get("status").asText()).isEqualTo("REQUESTED");
 
-        long later = bookAt(fp, BASE.plus(Duration.ofDays(2)));       // another REQUESTED, further away
+        long later = bookAt(fp, BASE.plus(Duration.ofMinutes(90)));   // another REQUESTED, further away
         assertThat(active(fp).body().get("ride").get("id").asLong()).isEqualTo(id); // nearest scheduledAt
 
         acceptOk(fd1, later);
+        assertThat(active(fp).body().get("ride").get("id").asLong()).isEqualTo(id); // later ACCEPTED is >60 min ahead, NOW is not
+        clock.set(BASE.plus(Duration.ofMinutes(40)));                 // now 50 min ahead
         assertThat(active(fp).body().get("ride").get("id").asLong()).isEqualTo(later); // ACCEPTED beats REQUESTED
         for (String step : new String[] {"start", "arrive", "pickup"}) {
             drive(fd1, later, step);
@@ -124,6 +126,45 @@ class RideHistoryAndActiveIntegrationTest extends M1TestSupport {
         assertThat(active(fp).body().get("ride").get("id").asLong()).isEqualTo(id);
         call("POST", "/api/rides/" + id + "/cancel", fp, null, 200);
         assertThat(active(fp).status()).isEqualTo(204);
+    }
+
+    @Test
+    void passengerFarFutureBookingIsNotActiveButSoonOrNowIs() throws Exception {
+        long far = bookAt(fp, BASE.plus(Duration.ofDays(2)));
+        assertThat(active(fp).status()).isEqualTo(204);                // REQUESTED, 2 days ahead
+        acceptOk(fd1, far);
+        assertThat(active(fp).status()).isEqualTo(204);                // ACCEPTED, 2 days ahead
+        call("POST", "/api/rides/" + far + "/cancel", fp, null, 200);
+
+        long soon = bookAt(fp, BASE.plus(Duration.ofMinutes(30)));
+        assertThat(active(fp).body().get("ride").get("id").asLong()).isEqualTo(soon);
+        acceptOk(fd2, soon);
+        assertThat(active(fp).body().get("ride").get("status").asText()).isEqualTo("ACCEPTED");
+        call("POST", "/api/rides/" + soon + "/cancel", fp, null, 200);
+
+        long now = bookNow(fp);
+        Resp r = active(fp);
+        assertThat(r.body().get("ride").get("id").asLong()).isEqualTo(now);
+        assertThat(r.body().get("ride").get("status").asText()).isEqualTo("REQUESTED");
+        call("POST", "/api/rides/" + now + "/cancel", fp, null, 200);
+    }
+
+    @Test
+    void feedbackGivenIsReportedSingleAndInLists() throws Exception {
+        long id = accepted(fp, fd3, at("2027-08-01", "10:00"));
+        long other = accepted(fp, fd3, at("2027-08-02", "10:00"));
+        complete(fd3, id);
+        complete(fd3, other);
+        assertThat(ride(fp, id).get("feedbackGiven").asBoolean()).isFalse();
+        call("POST", "/api/rides/" + id + "/feedback", fp, Map.of("stars", 4, "comment", "ok"), 200);
+        assertThat(ride(fp, id).get("feedbackGiven").asBoolean()).isTrue();
+        assertThat(ride(fp, other).get("feedbackGiven").asBoolean()).isFalse();
+        Map<Long, Boolean> seen = new java.util.HashMap<>();
+        for (String q : new String[] {"?history=true", "?history=false"}) {   // completed future-dated rides land in either list
+            call("GET", "/api/rides/my" + q, fp, null, 200).body()
+                .forEach(n -> seen.put(n.get("id").asLong(), n.get("feedbackGiven").asBoolean()));
+        }
+        assertThat(seen).containsEntry(id, true).containsEntry(other, false);
     }
 
     @Test
@@ -143,7 +184,7 @@ class RideHistoryAndActiveIntegrationTest extends M1TestSupport {
     @Test
     void driverViewBeatsPassengerViewAndAcceptedNeedsToBeWithinAnHour() throws Exception {
         long mine = bookAt(fp, BASE.plus(Duration.ofHours(2)));       // fd1 as passenger, REQUESTED
-        long asPassenger = call("POST", "/api/rides", fd1, rideBody(BASE.plus(Duration.ofHours(5))), 200).body().get("id").asLong();
+        long asPassenger = call("POST", "/api/rides", fd1, rideBody(BASE.plus(Duration.ofMinutes(50))), 200).body().get("id").asLong();
         assertThat(active(fd1).body().get("role").asText()).isEqualTo("PASSENGER");
         assertThat(active(fd1).body().get("ride").get("id").asLong()).isEqualTo(asPassenger);
 

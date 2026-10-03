@@ -207,7 +207,9 @@ class RideStateMachineIntegrationTest extends M1TestSupport {
             assertThat(ok).as("round " + round + ": " + results).isEqualTo(1);
             for (Resp r : results) {
                 if (r.status() != 200) {
-                    assertConflict(r, "RIDE_TAKEN");
+                    // losers see RIDE_TAKEN, or OFFER_CLOSED when the winner's commit already closed their offer
+                    assertThat(r.status()).as(r.body().toString()).isEqualTo(409);
+                    assertThat(r.code()).as(r.body().toString()).isIn("RIDE_TAKEN", "OFFER_CLOSED");
                 }
             }
             JsonNode r = ride(p1, id);

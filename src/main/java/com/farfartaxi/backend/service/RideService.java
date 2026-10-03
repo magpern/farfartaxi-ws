@@ -9,6 +9,7 @@ import com.farfartaxi.backend.api.dto.RideDtos.RideResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.SubmitFeedbackRequest;
 import com.farfartaxi.backend.model.OfferStatus;
 import com.farfartaxi.backend.model.RideEntity;
+import com.farfartaxi.backend.model.RideKind;
 import com.farfartaxi.backend.model.RideFeedbackEntity;
 import com.farfartaxi.backend.model.RideKind;
 import com.farfartaxi.backend.model.RideOfferEntity;
@@ -181,7 +182,7 @@ public class RideService {
         UserEntity user = currentUserService.requireUser();
         Instant now = clock.instant();
         // upcoming = still in play or scheduled in the future; history = in the past and over
-        return rideRepository.findByPassengerIdAndTestOrderByScheduledAtAsc(user.getId(), policy.world(user)).stream()
+        List<RideEntity> rows = rideRepository.findByPassengerIdAndTestOrderByScheduledAtAsc(user.getId(), policy.world(user)).stream()
             .filter(r -> {
                 boolean staleNoDriver = r.getStatus() == RideStatus.NO_DRIVER
                     && !r.getScheduledAt().isAfter(now.minus(NO_DRIVER_UPCOMING_GRACE));
@@ -190,8 +191,9 @@ public class RideService {
             })
             .sorted(history ? java.util.Comparator.comparing(RideEntity::getScheduledAt).reversed()
                 : java.util.Comparator.comparing(RideEntity::getScheduledAt))
-            .map(r -> responses.toResponse(r, user, null))
             .toList();
+        java.util.Set<Long> fb = responses.feedbackRideIds(rows);
+        return rows.stream().map(r -> responses.toResponse(r, user, null, fb)).toList();
     }
 
     // ------------------------------------------------------------------ passenger actions
@@ -439,13 +441,20 @@ public class RideService {
                 return Optional.of(new ActiveRideResponse("DRIVER", responses.toResponse(pick.get(), user, null)));
             }
         }
+        Instant horizon = now.plus(Duration.ofMinutes(60));
         List<RideEntity> own = rideRepository.findByPassengerIdAndStatusInAndTest(user.getId(),
             java.util.EnumSet.of(RideStatus.ACCEPTED, RideStatus.EN_ROUTE, RideStatus.ARRIVED, RideStatus.PICKED_UP,
                 RideStatus.REQUESTED, RideStatus.NO_DRIVER), world);
-        Optional<RideEntity> pick = own.stream().filter(r -> RideStatus.ASSIGNED.contains(r.getStatus()))
+        // A far-future booking is not "active": ACCEPTED/REQUESTED count only for NOW rides or within the next hour.
+        java.util.function.Predicate<RideEntity> relevant = r -> switch (r.getStatus()) {
+            case EN_ROUTE, ARRIVED, PICKED_UP -> true;
+            case ACCEPTED, REQUESTED -> r.getKind() == RideKind.NOW || !r.getScheduledAt().isAfter(horizon);
+            default -> false;
+        };
+        Optional<RideEntity> pick = own.stream().filter(relevant).filter(r -> RideStatus.ASSIGNED.contains(r.getStatus()))
             .max(java.util.Comparator.comparingInt((RideEntity r) -> r.getStatus().ordinal()).thenComparing(byTime.reversed()));
         if (pick.isEmpty()) {
-            pick = own.stream().filter(r -> r.getStatus() == RideStatus.REQUESTED).min(byTime);
+            pick = own.stream().filter(relevant).filter(r -> r.getStatus() == RideStatus.REQUESTED).min(byTime);
         }
         if (pick.isEmpty()) {
             Instant cutoff = now.minus(Duration.ofHours(2));
