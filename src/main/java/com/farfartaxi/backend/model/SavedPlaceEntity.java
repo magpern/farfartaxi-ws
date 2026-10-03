@@ -37,6 +37,22 @@ public class SavedPlaceEntity {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
+    @Column(length = 16)
+    private String provider;
+
+    @Column(name = "provider_place_id", length = 512)
+    private String providerPlaceId;
+
+    @Column(name = "formatted_address", length = 512)
+    private String formattedAddress;
+
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private PlaceKind kind = PlaceKind.OTHER;
+
+    @Column(length = 32)
+    private String icon;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -96,4 +112,15 @@ public class SavedPlaceEntity {
     public void setSortOrder(int sortOrder) {
         this.sortOrder = sortOrder;
     }
+
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
+    public String getProviderPlaceId() { return providerPlaceId; }
+    public void setProviderPlaceId(String providerPlaceId) { this.providerPlaceId = providerPlaceId; }
+    public String getFormattedAddress() { return formattedAddress; }
+    public void setFormattedAddress(String formattedAddress) { this.formattedAddress = formattedAddress; }
+    public PlaceKind getKind() { return kind; }
+    public void setKind(PlaceKind kind) { this.kind = kind; }
+    public String getIcon() { return icon; }
+    public void setIcon(String icon) { this.icon = icon; }
 }

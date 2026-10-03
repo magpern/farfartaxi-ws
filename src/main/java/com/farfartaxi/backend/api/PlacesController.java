@@ -7,7 +7,9 @@ import com.farfartaxi.backend.api.dto.PlaceDtos.PlaceSelectionRequest;
 import com.farfartaxi.backend.places.NearestStopService;
 import com.farfartaxi.backend.places.PlaceSearchService;
 import com.farfartaxi.backend.places.PlaceSelectionService;
+import com.farfartaxi.backend.places.RecentPlacesService;
 import com.farfartaxi.backend.places.ReverseGeocodeService;
+import java.util.List;
 import com.farfartaxi.backend.service.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -27,9 +29,11 @@ public class PlacesController {
     private final NearestStopService nearestStops;
     private final ReverseGeocodeService reverse;
     private final CurrentUserService currentUser;
+    private final RecentPlacesService recent;
 
     public PlacesController(PlaceSearchService search, PlaceSelectionService selections, NearestStopService nearestStops,
-                            ReverseGeocodeService reverse, CurrentUserService currentUser) {
+                            ReverseGeocodeService reverse, CurrentUserService currentUser, RecentPlacesService recent) {
+        this.recent = recent;
         this.search = search;
         this.selections = selections;
         this.nearestStops = nearestStops;
@@ -47,6 +51,11 @@ public class PlacesController {
             @RequestParam(required = false) Double pickupLon,
             @RequestParam(required = false) Integer limit) {
         return search.search(currentUser.requireUser(), q, lat, lon, accuracy, pickupLat, pickupLon, limit);
+    }
+
+    @GetMapping("/recent")
+    public List<PlaceResult> recent(@RequestParam(required = false) Integer limit) {
+        return recent.recent(currentUser.requireUser(), limit);
     }
 
     @GetMapping("/nearest-stop")

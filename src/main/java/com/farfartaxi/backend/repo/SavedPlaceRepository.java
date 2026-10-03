@@ -1,5 +1,6 @@
 package com.farfartaxi.backend.repo;
 
+import com.farfartaxi.backend.model.PlaceKind;
 import com.farfartaxi.backend.model.SavedPlaceEntity;
 import java.util.List;
 import java.util.Optional;
@@ -12,4 +13,6 @@ public interface SavedPlaceRepository extends JpaRepository<SavedPlaceEntity, Lo
     void deleteById(Long id);
 
     List<SavedPlaceEntity> findByUserIdOrderBySortOrderAscLabelAsc(Long userId);
+
+    List<SavedPlaceEntity> findByUserIdAndKind(Long userId, PlaceKind kind);
 }
