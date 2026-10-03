@@ -17,8 +17,8 @@ public class PushService {
         this.subscriptionRepository = subscriptionRepository;
     }
 
-    public void notifyRole(Role role, String title, String body) {
-        List<PushSubscriptionEntity> subscribers = subscriptionRepository.findByUser_Role(role);
+    public void notifyRole(Role role, boolean isTest, String title, String body) {
+        List<PushSubscriptionEntity> subscribers = subscriptionRepository.findByUser_RoleAndUser_Test(role, isTest);
         subscribers.forEach(s -> LOG.info("Push -> {} {} / {}", s.getUser().getEmail(), title, body));
     }
 

@@ -24,4 +24,13 @@ public class CurrentUserService {
         return userRepository.findById(securityUser.getId())
             .orElseThrow(() -> new AppException(HttpStatus.UNAUTHORIZED, "User not found"));
     }
+
+    /** The authenticated user, or null for anonymous requests. */
+    public UserEntity currentUserOrNull() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof SecurityUser securityUser)) {
+            return null;
+        }
+        return userRepository.findById(securityUser.getId()).orElse(null);
+    }
 }

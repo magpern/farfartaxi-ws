@@ -7,18 +7,26 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 
+/** Every listing is filtered by {@code test} (the caller's world); see RideAccessPolicy. */
 public interface RideRepository extends JpaRepository<RideEntity, Long> {
     RideEntity save(RideEntity ride);
     Optional<RideEntity> findById(Long id);
-    List<RideEntity> findAll();
     void deleteById(Long id);
 
-    List<RideEntity> findByPassengerIdAndScheduledAtAfterOrderByScheduledAtAsc(Long passengerId, Instant now);
-    List<RideEntity> findByPassengerIdAndScheduledAtBeforeOrderByScheduledAtDesc(Long passengerId, Instant now);
-    List<RideEntity> findByStatusOrderByScheduledAtAsc(RideStatus status);
+    List<RideEntity> findByPassengerIdAndScheduledAtAfterAndTestOrderByScheduledAtAsc(Long passengerId, Instant now, boolean test);
+    List<RideEntity> findByPassengerIdAndScheduledAtBeforeAndTestOrderByScheduledAtDesc(Long passengerId, Instant now, boolean test);
+    List<RideEntity> findByStatusAndTestOrderByScheduledAtAsc(RideStatus status, boolean test);
 
-    List<RideEntity> findByAcceptedByDriver_IdAndStatusInOrderByScheduledAtAsc(Long driverId, Collection<RideStatus> statuses);
+    List<RideEntity> findByAcceptedByDriver_IdAndStatusInAndTestOrderByScheduledAtAsc(Long driverId, Collection<RideStatus> statuses, boolean test);
+
+    List<RideEntity> findByAcceptedByDriver_IdAndTest(Long driverId, boolean test);
 
     Optional<RideEntity> findByShareToken(String shareToken);
+
+    @Modifying
+    @Query("delete from RideEntity r where r.test = true")
+    int deleteAllTestRides();
 }

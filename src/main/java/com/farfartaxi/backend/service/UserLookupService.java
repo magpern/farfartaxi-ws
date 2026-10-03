@@ -8,13 +8,17 @@ import org.springframework.stereotype.Service;
 @Service
 public class UserLookupService {
     private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
+    private final RideAccessPolicy policy;
 
-    public UserLookupService(UserRepository userRepository) {
+    public UserLookupService(UserRepository userRepository, CurrentUserService currentUserService, RideAccessPolicy policy) {
+        this.currentUserService = currentUserService;
+        this.policy = policy;
         this.userRepository = userRepository;
     }
 
     public List<BookingUserOption> listEnabledForBooking() {
-        return userRepository.findByEnabledTrueAndApprovedTrueOrderByFullNameAsc().stream()
+        return userRepository.findByEnabledTrueAndApprovedTrueAndTestOrderByFullNameAsc(policy.world(currentUserService.requireUser())).stream()
             .map(u -> new BookingUserOption(u.getId(), u.getFullName(), u.getEmail()))
             .toList();
     }
