@@ -81,6 +81,23 @@ ok "places search requires auth"
 req GET "/api/public/geocode/search?q=mcdonalds"; expect "removed public geocode search" 404
 ok "public geocode search is gone (404)"
 
+# M4: saved places (create, list, delete) and recent places.
+SP_BODY=$(python3 -c 'import json; print(json.dumps({"label":"Smoke plats","address":"Smoke Plats 3, Test","formattedAddress":"Smoke Plats 3, Test","lat":59.34,"lon":18.09,"kind":"OTHER"}))')
+req POST /api/saved-places "$PTOKEN" "$SP_BODY"; expect "create saved place" 200
+SPID=$(jget 'd["id"]')
+[ -n "$SPID" ] || fail "create saved place returned no id"
+req GET /api/saved-places "$PTOKEN"; expect "list saved places" 200
+printf '%s' "$BODY_OUT" | SPID="$SPID" python3 -c 'import sys,json,os; sys.exit(0 if any(str(p["id"])==os.environ["SPID"] for p in json.load(sys.stdin)) else 1)' \
+  || fail "saved place $SPID not in the passenger's list"
+req DELETE "/api/saved-places/$SPID" "$PTOKEN"; expect "delete saved place" 200
+req GET /api/saved-places "$PTOKEN"; expect "list saved places after delete" 200
+printf '%s' "$BODY_OUT" | SPID="$SPID" python3 -c 'import sys,json,os; sys.exit(1 if any(str(p["id"])==os.environ["SPID"] for p in json.load(sys.stdin)) else 0)' \
+  || fail "saved place $SPID still listed after delete"
+ok "saved place create/list/delete"
+req GET "/api/places/recent?limit=3" "$PTOKEN"; expect "recent places" 200
+printf '%s' "$BODY_OUT" | python3 -c 'import sys,json; sys.exit(0 if isinstance(json.load(sys.stdin), list) else 1)' || fail "recent places is not a JSON array"
+ok "recent places 200 ($(jget 'len(d)') items)"
+
 req GET /api/auth/me "$PTOKEN"; expect "passenger me" 200
 PID=$(jget 'd["id"]')
 [ -n "$PID" ] || fail "could not read passenger id"
