@@ -22,6 +22,7 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version (deployed) |
 | V7 | M3 | place_selections (learned ranking) (deployed) |
 | V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon, one-HOME partial unique index (deployed) |
+| V9 | M6 | users.locale, notification_prefs |
 
 ## Milestones
 | Milestone | Status |
@@ -34,8 +35,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M2 Mobile UX shell | **done** (v1.7.0, deployed 2026-10-03 ~20:40) |
 | M3 Search and places | **done** (v1.8.0, deployed 2026-10-03 ~22:30) |
 | M4 Places + one-tap trips | **done** (v1.9.0, deployed 2026-10-04 ~00:15) |
-| M5 Driver workflow | in progress |
-| M6 Notifications | pending |
+| M5 Driver workflow | **done** (v1.10.0, deployed 2026-10-04 ~01:30) |
+| M6 Notifications | in progress |
 | M7 Live tracking | pending |
 | M8 Observability + ops | pending |
 
@@ -96,6 +97,12 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Review (Opus): NOT CLEAN (B1 label limit mismatch 40 vs prefilled full address; B2 slow GPS after early Åk hem tap broke the 3-tap gate) -> fixed with non-blocking items (loading state for home button, one-HOME partial unique index + 409, 404 for non-owners, on-behalf checks on PATCH/DELETE and recents, stale-response guard, on-behalf places in driver booking, save-place only after completion, router state cleanup).
 - Gates: 148 backend tests, 188 frontend tests (incl. 3-tap Åk hem with immediate and delayed GPS), local e2e 38/38 + smoke x2, CI green; production: smoke PASS (incl. saved place CRUD + recents), Playwright 38/38 on production incl. "Åk hem books in exactly 3 taps from a cold start", real rides unchanged, 0 ERROR lines.
 - PRs ws #8, web #7; release `v1.9.0` backend `sha256:7796f455...`, frontend `sha256:c36879a7...`; Flyway V8.
+
+## M5 evidence
+- Work packages: driver workflow frontend + e2e gate (Sonnet); master UX check of screenshots (button hierarchy, toast overlap) folded into review fixes.
+- Review (Opus): CLEAN; applied: single primary step button (Navigate/Ring secondary), step toasts replaced/bottom-anchored, consistent "Lämna tillbaka resa", OSM attribution on mini maps, "Inget telefonnummer sparat", Navigate hidden in ARRIVED, test accounts get PTS fictitious phones (+46701740605/6) so e2e asserts real backend phone data.
+- Gates: frontend 205+ tests (navigation URL building incl. iOS/iPadOS detection, Apple/Google, sms body separator), backend 148; local e2e 41 passed + 1 iOS-only skip; production Playwright 41 passed (+1 skip) incl. M5 gate (full ride via step button + Navigate/Ring only; Navigate targets pickup then destination); smoke PASS; real rides unchanged; 0 ERROR lines.
+- PRs ws #9, web #8; release `v1.10.0` backend `sha256:e3d8caaf...`, frontend `sha256:38674660...`.
 
 ## Deviations
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
