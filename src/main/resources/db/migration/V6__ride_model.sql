@@ -65,3 +65,9 @@ SELECT r.id, u.id, 'OFFERED', FALSE, CURRENT_TIMESTAMP
 FROM rides r JOIN users u ON u.is_test = r.is_test
 WHERE r.status = 'REQUESTED' AND u.role IN ('DRIVER', 'ADMIN') AND u.enabled = TRUE AND u.approved = TRUE
   AND u.id <> r.passenger_id;
+
+-- Rides already taken by a driver get that driver's ACCEPTED offer, so the new offer-based driver views keep showing them.
+INSERT INTO ride_offers (ride_id, driver_id, status, priority, offered_at, responded_at)
+SELECT r.id, r.accepted_by_driver_id, 'ACCEPTED', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM rides r
+WHERE r.status IN ('ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'PICKED_UP') AND r.accepted_by_driver_id IS NOT NULL;

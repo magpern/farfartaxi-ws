@@ -99,7 +99,15 @@ public class RideOfferService {
     }
 
     /** NOW ride unanswered after the re-push threshold: also offer to not-available-now drivers (never to away ones). */
+    @jakarta.transaction.Transactional
     public void repushNow(RideEntity ride) {
+        if (ride.getStatus() != com.farfartaxi.backend.model.RideStatus.REQUESTED) {
+            return;
+        }
+        if (em.contains(ride)) {
+            // bump the version so a concurrent accept fails its optimistic check instead of leaving an orphan OFFERED offer
+            em.lock(ride, jakarta.persistence.LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+        }
         LocalDate date = today();
         Map<Long, RideOfferEntity> existing = byDriver(ride.getId());
         for (UserEntity d : driverPool(ride)) {

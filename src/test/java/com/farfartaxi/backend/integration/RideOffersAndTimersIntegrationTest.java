@@ -33,6 +33,33 @@ class RideOffersAndTimersIntegrationTest extends M1TestSupport {
         return offerRepo.findByRideIdAndDriverId(rideId, driverId).isPresent();
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.farfartaxi.backend.service.RideOfferService offerService;
+
+    @Test
+    void deletingTheLastOpenOfferHolderMakesTheRideNoDriver() throws Exception {
+        String email = "m1-todelete@test.local";
+        account(email, true);
+        long deleteId = idOf(email);
+        long id = bookAt(at("2027-05-04", "10:00"));
+        assertThat(hasOffer(id, deleteId)).isTrue();
+        declineAllReal(id);
+        assertThat(status(id)).isEqualTo("REQUESTED"); // the soon-to-be-deleted driver still holds an open offer
+        call("DELETE", "/api/admin/users/" + deleteId, adminToken, null, 200);
+        assertThat(status(id)).isEqualTo("NO_DRIVER");
+        assertThat(timeline(id)).endsWith("NO_DRIVER");
+    }
+
+    @Test
+    void repushNowIgnoresRidesThatAreNotRequested() throws Exception {
+        long id = bookNow(p1);
+        acceptOk(d1, id);
+        int before = offerRepo.findByRideId(id).size();
+        offerService.repushNow(rideRepo.findById(id).orElseThrow());
+        assertThat(offerRepo.findByRideId(id)).hasSize(before)
+            .noneMatch(o -> o.getStatus() == OfferStatus.OFFERED || o.getStatus() == OfferStatus.VIEWED);
+    }
+
     @Test
     void declineByAllDriversMakesNoDriverAndKeepWaitingIsRefused() throws Exception {
         long id = bookAt(at("2027-05-03", "10:00"));

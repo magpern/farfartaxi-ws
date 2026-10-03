@@ -21,12 +21,17 @@ public class AdminService {
     private final com.farfartaxi.backend.repo.RideMessageRepository messageRepository;
     private final com.farfartaxi.backend.repo.RideRepository rideRepository;
     private final com.farfartaxi.backend.repo.RideEventRepository eventRepository;
+    private final RideOfferService rideOffers;
+    private final RideSystemTransitions systemTransitions;
 
     public AdminService(UserRepository userRepository, CurrentUserService currentUserService, RefreshTokenService refreshTokenService, java.time.Clock clock,
                         com.farfartaxi.backend.repo.RideOfferRepository offerRepository,
                         com.farfartaxi.backend.repo.RideMessageRepository messageRepository,
                         com.farfartaxi.backend.repo.RideRepository rideRepository,
-                        com.farfartaxi.backend.repo.RideEventRepository eventRepository) {
+                        com.farfartaxi.backend.repo.RideEventRepository eventRepository,
+                        RideOfferService rideOffers, RideSystemTransitions systemTransitions) {
+        this.rideOffers = rideOffers;
+        this.systemTransitions = systemTransitions;
         this.rideRepository = rideRepository;
         this.eventRepository = eventRepository;
         this.offerRepository = offerRepository;
@@ -149,6 +154,9 @@ public class AdminService {
         if (target.getRole() == Role.ADMIN && userRepository.countByRole(Role.ADMIN) <= 1) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Cannot delete the last admin");
         }
+        List<Long> affectedRideIds = offerRepository.findByDriverIdAndStatusIn(userId,
+            List.of(com.farfartaxi.backend.model.OfferStatus.OFFERED, com.farfartaxi.backend.model.OfferStatus.VIEWED))
+            .stream().map(com.farfartaxi.backend.model.RideOfferEntity::getRideId).toList();
         try {
             // offers and canned messages are history that must not block deleting a driver
             offerRepository.deleteByDriverId(userId);
@@ -159,6 +167,13 @@ public class AdminService {
             userRepository.flush(); // surface FK violations here instead of at commit (which would be a 500)
         } catch (DataIntegrityViolationException e) {
             throw new AppException(HttpStatus.CONFLICT, "User has related data; block the account instead or remove rides first");
+        }
+        // REQUESTED rides that lost their last open offer follow the normal "no drivers left" path
+        for (Long rideId : affectedRideIds) {
+            rideRepository.findById(rideId)
+                .filter(r -> r.getStatus() == com.farfartaxi.backend.model.RideStatus.REQUESTED)
+                .filter(r -> rideOffers.openOffers(r.getId()).isEmpty())
+                .ifPresent(r -> systemTransitions.toNoDriver(r, "no drivers left (driver deleted)"));
         }
     }
 }
