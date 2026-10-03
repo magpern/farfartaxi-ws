@@ -52,4 +52,11 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
     @Modifying
     @Query("delete from RideEntity r where r.test = true")
     int deleteAllTestRides();
+
+    /** Newest rides of a passenger (own world) since a cutoff; used for "recent places". */
+    @Query("select r from RideEntity r where r.passenger.id = :userId and r.test = :test and r.createdAt >= :since order by r.createdAt desc")
+    List<RideEntity> findRecentForPlaces(@org.springframework.data.repository.query.Param("userId") Long userId,
+        @org.springframework.data.repository.query.Param("test") boolean test,
+        @org.springframework.data.repository.query.Param("since") Instant since,
+        org.springframework.data.domain.Pageable page);
 }

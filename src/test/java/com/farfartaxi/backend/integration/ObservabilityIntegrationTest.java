@@ -64,15 +64,15 @@ class ObservabilityIntegrationTest {
 
     @Test
     void prometheusOnManagementPort() throws Exception {
-        metrics.geocodeSearch("ok", 1_000_000L);
+        metrics.placesSearch("SL", "ok", 1_000_000L);
         metrics.rideTransition("BOOKED", false);
         metrics.pushSent(true);
         HttpResponse<String> r = get("http://localhost:" + mgmtPort + "/actuator/prometheus", null);
         assertThat(r.statusCode()).as(r.body()).isEqualTo(200);
-        assertThat(r.body()).contains("farfartaxi_geocode_search_seconds_count{outcome=\"ok\"");
+        assertThat(r.body()).contains("farfartaxi_places_search_seconds_count{outcome=\"ok\",provider=\"SL\"");
         assertThat(r.body()).contains("farfartaxi_ride_transitions_total{type=\"BOOKED\"");
         assertThat(r.body()).contains("farfartaxi_push_total{outcome=\"ok\"");
-        assertThat(registry.find("farfartaxi.geocode.search").tag("outcome", "ok").timer()).isNotNull();
+        assertThat(registry.find("farfartaxi.places.search").tag("outcome", "ok").timer()).isNotNull();
     }
 
     @Test
