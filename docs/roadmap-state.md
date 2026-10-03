@@ -20,6 +20,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V4 | M0B | test identities (users.is_test, rides.is_test) (deployed) |
 | V5 | M0C | refresh_tokens (deployed) |
 | V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version (deployed) |
+| V7 | M3 | place_selections (learned ranking) |
+| V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon |
 
 ## Milestones
 | Milestone | Status |
@@ -29,8 +31,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M0B Baseline + safety net | **done** (v1.4.0, deployed 2026-10-03 ~17:55) |
 | M0C Auth modernization | **done** (v1.5.0, deployed 2026-10-03 ~18:20) |
 | M1 Core ride model | **done** (v1.6.0, deployed 2026-10-03 ~19:15) |
-| M2 Mobile UX shell | in progress |
-| M3 Search and places | pending |
+| M2 Mobile UX shell | **done** (v1.7.0, deployed 2026-10-03 ~20:40) |
+| M3 Search and places | in progress |
 | M4 Places + one-tap trips | pending |
 | M5 Driver workflow | pending |
 | M6 Notifications | pending |
@@ -75,6 +77,12 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Reviews (Opus): deep review NOT CLEAN (B1 accept without offer; B2 keep-waiting re-offered withdrawn/away drivers) + 16 non-blocking -> fixed (scheduler row lock, conditional markViewed, away rule everywhere, timer reset on edit/return, accept race mapping, V6 offer backfill + corrected rollback SQL, kind-less near-now = NOW, 3 s OSRM budget, stale NO_DRIVER to history, messages current participants only, offerPriority, driver deletion, zero-offer -> NO_DRIVER, frontend attribution/edit/GPS throttle/error text); re-review CLEAN; final small fixes (NOW-ride edit, accepted-ride offer backfill, deletion -> NO_DRIVER check, repush guard).
 - Gates: 104 backend tests (all transitions/guards, concurrent accepts, decline-all/keep-waiting/ALL_DECLINED, NOW 10/20-min timers, scheduled-time NO_DRIVER, once-only reminders, material vs minor edit, away Saturday/Sunday, idempotency incl. concurrent same key, proximity, cancel rules, messages, availableActions, phone privacy, V6 data migration); 66 frontend tests incl. DST 2026-10-25 / 2027-03-28; local e2e smoke x2 + Playwright 6/6; V6 migration gate on fresh production dump (59 ms, validate OK, 38 rides intact); CI green.
 - PRs ws #5 (`bb44c07`), web #4; release `v1.6.0`: backend `sha256:02540603...`, frontend `sha256:bd7fce1f...`; deployed with no in-flight rides; production smoke PASS (new flow), Playwright 6/6 on production, real rides unchanged, 0 ERROR lines.
+
+## M2 evidence
+- Work packages: shell (Sonnet), network/PWA update layer (Sonnet, worktree), backend active/history endpoints (Sonnet), integration + e2e gates + screenshots (Sonnet). Master UX check of screenshots: driver home buried requests below availability -> fixed (big toggle, requests first, away dates collapsed).
+- Review (Opus): NOT CLEAN (B1 far-future booking hijacked home and blocked booking; B2 sheets stole focus every poll) -> fixed with 8 non-blocking items (ride cache scoped per user + TTL + cleared on logout, update guard counts cached pointer and in-flight mutations, 502-504 = unreachable, tap targets, confirmation shortcuts, visibility-gated polling, feedbackGiven). Master fix: losing concurrent accepts always RIDE_TAKEN (committed-status re-read), test tightened, 3 green runs.
+- Gates: 114 backend tests, 145 frontend tests (redirect logic, tab bars, offline Ring/SMS from cache, confirmation sheet, rating, history grouping, update policy incl. mid-ride/mid-booking no reload); Playwright 12/12 local and on production (active-ride redirect passenger/driver, offline banner + content + Ring, offline mutation not queued); smoke PASS on production; real rides unchanged; 0 ERROR lines.
+- PRs ws #6, web #5; release `v1.7.0` backend `sha256:bc632bde...`, frontend `sha256:ee317003...`.
 
 ## Deviations
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).

@@ -71,6 +71,16 @@ DTOKEN=$(login "$DRIVER_EMAIL" "$TEST_DRIVER_PASSWORD") || exit 1
 [ -n "$DTOKEN" ] || fail "no driver token"
 ok "driver login"
 
+# M3: authenticated places search (public geocode endpoints are gone). Empty results are fine (SL may be down).
+req GET "/api/places/search?q=mcdonalds" "$PTOKEN"; expect "places search" 200
+printf '%s' "$BODY_OUT" | python3 -c 'import sys,json; d=json.load(sys.stdin); sys.exit(0 if isinstance(d.get("results"), list) else 1)' \
+  || fail "places search did not return a JSON object with a results array"
+ok "places search 200 ($(jget 'len(d["results"])') results)"
+req GET "/api/places/search?q=mcdonalds"; [ "$CODE" = "401" ] || [ "$CODE" = "403" ] || fail "places search without token: expected 401/403, got $CODE"
+ok "places search requires auth"
+req GET "/api/public/geocode/search?q=mcdonalds"; expect "removed public geocode search" 404
+ok "public geocode search is gone (404)"
+
 req GET /api/auth/me "$PTOKEN"; expect "passenger me" 200
 PID=$(jget 'd["id"]')
 [ -n "$PID" ] || fail "could not read passenger id"

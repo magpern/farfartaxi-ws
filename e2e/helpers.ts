@@ -5,32 +5,51 @@ import type { Identities } from './global-setup'
 export const ids: Identities = JSON.parse(readFileSync(new URL('./.e2e-users.json', import.meta.url), 'utf8'))
 export const baseURL = process.env.BASE_URL ?? 'http://127.0.0.1:8099'
 
-/** Canned responses so tests never depend on Nominatim / OSRM / OSM tiles. */
+export type StubPlace = {
+  provider: 'SL' | 'NOMINATIM' | 'FAVORITE' | 'RECENT'
+  providerPlaceId: string | null
+  kind: 'STOP' | 'ADDRESS' | 'POI' | 'FAVORITE' | 'RECENT'
+  name: string
+  area: string | null
+  formattedAddress: string
+  lat: number
+  lon: number
+  distanceKm: number | null
+}
+
+export const stubPlace = (name: string, lat: number, lon: number, over: Partial<StubPlace> = {}): StubPlace => ({
+  provider: 'SL',
+  providerPlaceId: `e2e-${name.replace(/\W+/g, '-')}`,
+  kind: 'ADDRESS',
+  name,
+  area: 'Stockholm',
+  formattedAddress: `${name}, Stockholm`,
+  lat,
+  lon,
+  distanceKm: null,
+  ...over
+})
+
+export const ROUTE_STUB = {
+  code: 'Ok',
+  routes: [{ distance: 2500, duration: 420, geometry: { type: 'LineString', coordinates: [[18.0686, 59.3293], [18.09, 59.34]] } }]
+}
+
+/**
+ * Canned responses so tests never depend on SL / Nominatim / OSRM / OSM tiles.
+ * Search returns "E2E Start <tag>" (or "E2E Slut <tag>" when the query contains "slut"); nearest-stop answers 204.
+ * Later `ctx.route` calls override these (Playwright matches the most recently registered route first).
+ */
 export async function stubExternal(ctx: BrowserContext, tag: string) {
-  const places: Record<string, { lat: string; lon: string; name: string }> = {
-    start: { lat: '59.3293', lon: '18.0686', name: `E2E Start ${tag}` },
-    slut: { lat: '59.3400', lon: '18.0900', name: `E2E Slut ${tag}` }
-  }
-  const item = (p: { lat: string; lon: string; name: string }) => ({
-    display_name: `${p.name}, Stockholm, Sverige`,
-    name: p.name,
-    lat: p.lat,
-    lon: p.lon,
-    address: { municipality: 'Stockholms kommun' }
-  })
-  await ctx.route('**/api/public/geocode/search**', (route) => {
+  const start = stubPlace(`E2E Start ${tag}`, 59.3293, 18.0686)
+  const slut = stubPlace(`E2E Slut ${tag}`, 59.34, 18.09)
+  await ctx.route('**/api/places/search**', (route) => {
     const q = (new URL(route.request().url()).searchParams.get('q') ?? '').toLowerCase()
-    return route.fulfill({ json: [item(q.includes('slut') ? places.slut : places.start)] })
+    return route.fulfill({ json: { results: [q.includes('slut') ? slut : start], hasMore: false, context: 'DEFAULT' } })
   })
-  await ctx.route('**/api/public/geocode/reverse**', (route) => route.fulfill({ json: item(places.start) }))
-  await ctx.route('**/api/public/route/**', (route) =>
-    route.fulfill({
-      json: {
-        code: 'Ok',
-        routes: [{ distance: 2500, duration: 420, geometry: { type: 'LineString', coordinates: [[18.0686, 59.3293], [18.09, 59.34]] } }]
-      }
-    })
-  )
+  await ctx.route('**/api/places/reverse**', (route) => route.fulfill({ json: start }))
+  await ctx.route('**/api/places/nearest-stop**', (route) => route.fulfill({ status: 204 }))
+  await ctx.route('**/api/public/route/**', (route) => route.fulfill({ json: ROUTE_STUB }))
   await ctx.route(/^https?:\/\/[^/]*(tile\.openstreetmap|openstreetmap\.org|osm\.org|unpkg\.com)[^/]*\//, (route) => route.abort())
 }
 
@@ -60,11 +79,12 @@ export async function loginViaUi(page: Page, u: { email: string; password: strin
   await later.waitFor({ state: 'visible', timeout: 5_000 }).then(() => later.click(), () => {})
 }
 
+/** Types into a place-search combobox and picks the first option containing `tag`. */
 export async function pickAddress(page: Page, ariaLabel: string, query: string, tag: string) {
-  const input = page.getByLabel(ariaLabel, { exact: true })
+  const input = page.getByRole('combobox', { name: ariaLabel, exact: true })
   await input.click()
   await input.fill(query)
-  await page.locator('.sheet-search button', { hasText: tag }).first().click()
+  await page.getByRole('option', { name: new RegExp(tag) }).first().click()
   await expect(input).toHaveValue(new RegExp(tag))
 }
 

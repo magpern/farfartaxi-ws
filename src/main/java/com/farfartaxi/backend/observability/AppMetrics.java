@@ -23,12 +23,22 @@ public class AppMetrics {
         registry.counter("farfartaxi.push", "outcome", ok ? "ok" : "error").increment();
     }
 
-    public void geocodeSearch(String outcome, long nanos) {
-        timer("farfartaxi.geocode.search", outcome, nanos);
+    /** @param provider SL etc.; @param outcome ok|empty|error */
+    public void placesSearch(String provider, String outcome, long nanos) {
+        Timer.builder("farfartaxi.places.search").tag("provider", provider).tag("outcome", outcome)
+            .register(registry).record(nanos, TimeUnit.NANOSECONDS);
     }
 
-    public void geocodeReverse(String outcome, long nanos) {
-        timer("farfartaxi.geocode.reverse", outcome, nanos);
+    public void placesCache(String provider, boolean hit) {
+        registry.counter("farfartaxi.places.cache", "provider", provider, "result", hit ? "hit" : "miss").increment();
+    }
+
+    public void placesNearestStop(String outcome, long nanos) {
+        timer("farfartaxi.places.nearest_stop", outcome, nanos);
+    }
+
+    public void placesReverse(String outcome, long nanos) {
+        timer("farfartaxi.places.reverse", outcome, nanos);
     }
 
     public void route(String outcome, long nanos) {

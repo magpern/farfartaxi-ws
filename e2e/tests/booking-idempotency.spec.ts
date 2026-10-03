@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { ids, loginViaUi } from '../helpers'
+import { ids, loginViaUi, pickAddress, stubExternal } from '../helpers'
 
 test('double-tapping the booking confirmation creates exactly one ride', async ({ browser, request }, testInfo) => {
   const tag = `${Date.now().toString(36)}idem`
@@ -8,29 +8,7 @@ test('double-tapping the booking confirmation creates exactly one ride', async (
     geolocation: { latitude: 59.3293, longitude: 18.0686 },
     permissions: ['geolocation']
   })
-  const item = (name: string, lat: string, lon: string) => ({
-    display_name: `${name}, Stockholm, Sverige`,
-    name,
-    lat,
-    lon,
-    address: { municipality: 'Stockholms kommun' }
-  })
-  await ctx.route('**/api/public/geocode/search**', (route) => {
-    const q = (new URL(route.request().url()).searchParams.get('q') ?? '').toLowerCase()
-    return route.fulfill({
-      json: [q.includes('slut') ? item(`E2E Slut ${tag}`, '59.3400', '18.0900') : item(`E2E Start ${tag}`, '59.3293', '18.0686')]
-    })
-  })
-  await ctx.route('**/api/public/geocode/reverse**', (route) => route.fulfill({ json: item(`E2E Start ${tag}`, '59.3293', '18.0686') }))
-  await ctx.route('**/api/public/route/**', (route) =>
-    route.fulfill({
-      json: {
-        code: 'Ok',
-        routes: [{ distance: 2500, duration: 420, geometry: { type: 'LineString', coordinates: [[18.0686, 59.3293], [18.09, 59.34]] } }]
-      }
-    })
-  )
-  await ctx.route(/^https?:\/\/[^/]*(tile\.openstreetmap|openstreetmap\.org|osm\.org|unpkg\.com)[^/]*\//, (route) => route.abort())
+  await stubExternal(ctx, tag)
 
   const page = await ctx.newPage()
   const baseURL = process.env.BASE_URL ?? 'http://127.0.0.1:8099'
@@ -59,13 +37,8 @@ test('double-tapping the booking confirmation creates exactly one ride', async (
     })
 
     await page.goto('/app')
-    for (const [label, q] of [['Startadress', 'start'], ['Destination', 'slut']]) {
-      const input = page.getByLabel(label, { exact: true })
-      await input.click()
-      await input.fill(q)
-      await page.locator('.sheet-search button', { hasText: tag }).first().click()
-      await expect(input).toHaveValue(new RegExp(tag))
-    }
+    await pickAddress(page, 'Startadress', 'start', tag)
+    await pickAddress(page, 'Destination', 'slut', tag)
     // "Åka nu" opens the confirmation sheet; two rapid taps on its confirm button must still book once.
     await page.getByRole('button', { name: /^Åk(a)? nu$/ }).click()
     const sheet = page.getByRole('dialog', { name: 'Stämmer det här?' })
