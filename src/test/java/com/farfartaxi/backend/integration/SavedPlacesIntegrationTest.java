@@ -88,14 +88,15 @@ class SavedPlacesIntegrationTest extends M1TestSupport {
 
     @Test
     void validatesLabelAndAddress() throws Exception {
-        call("POST", "/api/saved-places", u, place("x".repeat(41), null, 59.1), 400);
+        call("POST", "/api/saved-places", u, place("x".repeat(61), null, 59.1), 400);
         Map<String, Object> blank = place("ok", null, 59.1);
         blank.put("address", "y".repeat(513));
         call("POST", "/api/saved-places", u, blank, 400);
-        call("POST", "/api/saved-places", u, place("x".repeat(40), null, 59.1), 200);
+        call("POST", "/api/saved-places", u, place("x".repeat(60), null, 59.1), 200);
         long id = add(u, "", place("p", null, 59.3)).get("id").asLong();
         call("PATCH", "/api/saved-places/" + id, u, Map.of("label", ""), 400);
-        call("PATCH", "/api/saved-places/" + id, u, Map.of("label", "z".repeat(41)), 400);
+        call("PATCH", "/api/saved-places/" + id, u, Map.of("label", "z".repeat(61)), 400);
+        call("PATCH", "/api/saved-places/" + id, u, Map.of("label", "z".repeat(60)), 200);
     }
 
     @Test
@@ -134,17 +135,37 @@ class SavedPlacesIntegrationTest extends M1TestSupport {
         // admin too
         call("GET", "/api/saved-places?userId=" + uId, adminToken, null, 200);
 
-        // plain users: 403 on every verb
+        // plain users: 403 with userId, 404 by id (no existence leak)
         call("GET", "/api/saved-places?userId=" + uId, other, null, 403);
         call("POST", "/api/saved-places?userId=" + uId, other, place("X", null, 59.1), 403);
         call("PUT", "/api/saved-places/order?userId=" + uId, other, Map.of("ids", List.of(id)), 403);
-        call("PATCH", "/api/saved-places/" + id, other, Map.of("label", "hack"), 403);
-        call("DELETE", "/api/saved-places/" + id, other, null, 403);
+        call("PATCH", "/api/saved-places/" + id, other, Map.of("label", "hack"), 404);
+        call("DELETE", "/api/saved-places/" + id, other, null, 404);
         // own id as userId is fine
         call("GET", "/api/saved-places?userId=" + otherId, other, null, 200);
 
         call("DELETE", "/api/saved-places/" + id, drv, null, 200);
         assertThat(labels(u, "")).isEmpty();
+    }
+
+    private void setFlags(boolean approved, boolean enabled) {
+        var user = users.findById(uId).orElseThrow();
+        user.setApproved(approved);
+        user.setEnabled(enabled);
+        users.save(user);
+    }
+
+    @Test
+    void onBehalfPatchDeleteRequireEnabledApprovedTarget() throws Exception {
+        long id = add(u, "", place("Skolan", null, 59.1)).get("id").asLong();
+        setFlags(false, true);
+        call("PATCH", "/api/saved-places/" + id, drv, Map.of("label", "x"), 404);
+        call("DELETE", "/api/saved-places/" + id, drv, null, 404);
+        setFlags(true, false);
+        call("PATCH", "/api/saved-places/" + id, drv, Map.of("label", "x"), 404);
+        call("DELETE", "/api/saved-places/" + id, drv, null, 404);
+        setFlags(true, true);
+        call("PATCH", "/api/saved-places/" + id, drv, Map.of("label", "x"), 200);
     }
 
     @Test
@@ -162,6 +183,25 @@ class SavedPlacesIntegrationTest extends M1TestSupport {
         // same world still works for test world
         call("GET", "/api/saved-places?userId=" + tpId, td, null, 200);
         call("DELETE", "/api/saved-places/" + tpPlace, td, null, 200);
+    }
+
+    @Test
+    void recentsOnBehalfAuthorization() throws Exception {
+        clock.set(java.time.Instant.now());
+        ride(u, "A-gatan 1, Stad", 59.1000, 18.0, "B-gatan 2, Stad", 59.2000, 18.0, Duration.ZERO);
+        assertThat(call("GET", "/api/places/recent?userId=" + uId, drv, null, 200).body()).isNotEmpty();
+        assertThat(call("GET", "/api/places/recent?userId=" + uId, adminToken, null, 200).body()).isNotEmpty();
+        assertThat(call("GET", "/api/places/recent?userId=" + uId, u, null, 200).body()).isNotEmpty();
+        assertThat(call("GET", "/api/places/recent", drv, null, 200).body()).isEmpty();
+        call("GET", "/api/places/recent?userId=" + uId, other, null, 404);
+        call("GET", "/api/places/recent?userId=" + uId, td, null, 404);
+        call("GET", "/api/places/recent?userId=" + tpId, drv, null, 404);
+        call("GET", "/api/places/recent?userId=99999999", drv, null, 404);
+        setFlags(false, true);
+        call("GET", "/api/places/recent?userId=" + uId, drv, null, 404);
+        setFlags(true, false);
+        call("GET", "/api/places/recent?userId=" + uId, drv, null, 404);
+        setFlags(true, true);
     }
 
     @Test

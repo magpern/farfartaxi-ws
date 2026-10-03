@@ -30,9 +30,12 @@ public class PlacesController {
     private final ReverseGeocodeService reverse;
     private final CurrentUserService currentUser;
     private final RecentPlacesService recent;
+    private final com.farfartaxi.backend.service.SavedPlaceService savedPlaces;
 
     public PlacesController(PlaceSearchService search, PlaceSelectionService selections, NearestStopService nearestStops,
-                            ReverseGeocodeService reverse, CurrentUserService currentUser, RecentPlacesService recent) {
+                            ReverseGeocodeService reverse, CurrentUserService currentUser, RecentPlacesService recent,
+                            com.farfartaxi.backend.service.SavedPlaceService savedPlaces) {
+        this.savedPlaces = savedPlaces;
         this.recent = recent;
         this.search = search;
         this.selections = selections;
@@ -54,8 +57,8 @@ public class PlacesController {
     }
 
     @GetMapping("/recent")
-    public List<PlaceResult> recent(@RequestParam(required = false) Integer limit) {
-        return recent.recent(currentUser.requireUser(), limit);
+    public List<PlaceResult> recent(@RequestParam(required = false) Integer limit, @RequestParam(required = false) Long userId) {
+        return recent.recent(savedPlaces.resolveTargetHidingExistence(userId), limit);
     }
 
     @GetMapping("/nearest-stop")

@@ -127,6 +127,17 @@ public class SavedPlaceService {
                 savedPlaceRepository.save(h);
             }
         }
+        // Hibernate orders inserts before updates: flush the demotion so the partial unique index is never hit.
+        savedPlaceRepository.flush();
+    }
+
+    /** Same on-behalf rule as saved places, but a plain user naming another id gets 404 (no existence leak). */
+    public UserEntity resolveTargetHidingExistence(Long userId) {
+        UserEntity actor = currentUserService.requireUser();
+        if (userId != null && !userId.equals(actor.getId()) && actor.getRole() != Role.DRIVER && actor.getRole() != Role.ADMIN) {
+            throw new AppException(HttpStatus.NOT_FOUND, "User not found");
+        }
+        return resolveTarget(actor, userId);
     }
 
     /** Own places when userId is null/self; otherwise a driver/admin acting for a same-world, enabled, approved user. */
@@ -153,10 +164,10 @@ public class SavedPlaceService {
         if (owner.getId().equals(actor.getId())) {
             return place;
         }
-        if (actor.getRole() != Role.DRIVER && actor.getRole() != Role.ADMIN) {
-            throw new AppException(HttpStatus.FORBIDDEN, "Not your saved place");
-        }
-        if (!policy.canBookFor(actor, owner)) {
+        // Not ours: never reveal existence (404, not 403) unless a driver/admin may act for an enabled, approved, same-world owner.
+        boolean allowed = (actor.getRole() == Role.DRIVER || actor.getRole() == Role.ADMIN)
+            && policy.canBookFor(actor, owner) && owner.isEnabled() && owner.isApproved();
+        if (!allowed) {
             throw new AppException(HttpStatus.NOT_FOUND, "Saved place not found");
         }
         return place;

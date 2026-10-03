@@ -77,6 +77,19 @@ public class GlobalExceptionHandler {
         return false;
     }
 
+    /** A concurrent request already set another HOME for this user (partial unique index). */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> onIntegrity(org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest request) {
+        for (Throwable t = ex; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t.getMessage() != null && t.getMessage().contains("ux_saved_places_one_home")) {
+                log.warn("Concurrent HOME conflict {} {}", request.getMethod(), request.getRequestURI());
+                return ResponseEntity.status(409).body(Map.of("error", "Hemadressen ändrades samtidigt, försök igen"));
+            }
+        }
+        log.error("Data integrity violation {} {}", request.getMethod(), request.getRequestURI(), ex);
+        return ResponseEntity.internalServerError().body(Map.of("error", "Internal error"));
+    }
+
     /** Framework errors that already carry an HTTP status (404 no resource, 405, 415, missing params...). */
     @ExceptionHandler({
         org.springframework.web.servlet.resource.NoResourceFoundException.class,

@@ -10,3 +10,6 @@ UPDATE saved_places SET kind = 'HOME'
 WHERE id IN (
     SELECT MIN(id) FROM saved_places WHERE LOWER(TRIM(label)) IN ('hem', 'home') GROUP BY user_id
 );
+
+-- At most one HOME per user, enforced by the database (guards concurrent requests).
+CREATE UNIQUE INDEX ux_saved_places_one_home ON saved_places(user_id) WHERE kind = 'HOME';

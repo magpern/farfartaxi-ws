@@ -15,6 +15,14 @@ import org.junit.jupiter.api.Test;
 /** Replays the real V8 SQL on H2 (PostgreSQL mode) against a minimal pre-V8 saved_places table. */
 class V8MigrationDataTest {
     @Test
+    void migrationDeclaresPartialUniqueHomeIndex() throws Exception {
+        try (var in = V8MigrationDataTest.class.getResourceAsStream("/db/migration/V8__saved_place_details.sql")) {
+            assertThat(new String(in.readAllBytes(), StandardCharsets.UTF_8))
+                .contains("CREATE UNIQUE INDEX ux_saved_places_one_home ON saved_places(user_id) WHERE kind = 'HOME'");
+        }
+    }
+
+    @Test
     void backfillsHomeKindOncePerUser() throws Exception {
         String sql;
         try (var in = V8MigrationDataTest.class.getResourceAsStream("/db/migration/V8__saved_place_details.sql")) {
@@ -26,6 +34,9 @@ class V8MigrationDataTest {
             st.execute("INSERT INTO saved_places (user_id, label) VALUES (1, 'Hem'), (1, 'home'), (1, 'Skolan'), (2, ' HOME '), (3, 'Hemma hos Lisa')");
             for (String s : noComments.split(";")) {
                 if (!s.isBlank()) {
+                    if (s.contains("CREATE UNIQUE INDEX") && s.contains("WHERE")) {
+                        continue; // H2 has no partial indexes; Postgres-only (asserted below)
+                    }
                     st.execute(s.trim());
                 }
             }

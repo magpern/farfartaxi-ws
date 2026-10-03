@@ -12,7 +12,7 @@ public final class SavedPlaceDtos {
     }
 
     public record SavedPlaceRequest(
-        @NotBlank @Size(max = 40) String label,
+        @NotBlank @Size(max = 60) String label,
         @NotBlank @Size(max = 512) String address,
         @Size(max = 512) String formattedAddress,
         @NotNull Double lat,
@@ -27,7 +27,7 @@ public final class SavedPlaceDtos {
 
     /** Every field optional; only the supplied ones change. */
     public record SavedPlacePatch(
-        @Size(min = 1, max = 40) String label,
+        @Size(min = 1, max = 60) String label,
         PlaceKind kind,
         @Size(max = 32) String icon,
         Integer sortOrder,
