@@ -199,7 +199,8 @@ test.describe('M7 live tracking', () => {
       const secs = Math.round((Date.now() - t0) / 1000)
       console.log(`[m7] stale warning appeared ${secs} s after the driver context closed`)
       expect(secs).toBeGreaterThanOrEqual(60) // not before the 2-min rule (last fix was already a few s old when closing)
-      await expect(passenger.getByTestId('live-stale')).toContainText(/har inte uppdaterats på \d+ min/)
+      await expect(passenger.getByTestId('live-stale')).toContainText(/har inte uppdaterats på \d+ min – skärmen kanske är avstängd/)
+      await expect(passenger.getByTestId('live-stale')).not.toContainText(/sparas inte|har tappat/i)
     } finally {
       await pctx.close()
       await dctx.close().catch(() => {})
@@ -230,8 +231,11 @@ test.describe('M7 live tracking', () => {
       await loginViaUi(passenger, ids.passenger)
       await passenger.goto('/app')
       await expect(passenger).toHaveURL(new RegExp(`/app/resa/${ride.id}$`))
+      // Two taps: "Dela resan" creates the link (and shows "Sluta dela"), then "Dela länken" opens the share sheet.
       await passenger.getByRole('button', { name: 'Dela resan' }).click()
       await expect(passenger.getByRole('button', { name: 'Sluta dela' })).toBeVisible()
+      expect(await passenger.evaluate(() => (window as unknown as { __sharedUrl?: string }).__sharedUrl), 'no share before the second tap').toBeUndefined()
+      await passenger.getByRole('button', { name: 'Dela länken' }).click()
       const url = await passenger.evaluate(() => (window as unknown as { __sharedUrl?: string }).__sharedUrl)
       expect(url, 'navigator.share received the link').toMatch(/\/dela\/[A-Za-z0-9_-]{20,}$/)
       const path = new URL(url!).pathname // public-base-url is the production host; open the same path on the local stack
@@ -249,6 +253,7 @@ test.describe('M7 live tracking', () => {
 
       await passenger.getByRole('button', { name: 'Sluta dela' }).click()
       await expect(passenger.getByRole('button', { name: 'Sluta dela' })).toHaveCount(0)
+      await expect(passenger.getByRole('button', { name: 'Dela resan' })).toBeVisible()
       await pub.reload()
       await expect(pub.getByRole('heading', { name: 'Länken har gått ut' })).toBeVisible()
       const api410 = await request.get(`${baseURL}/api/public/share/${path.split('/').pop()}`)

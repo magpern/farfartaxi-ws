@@ -209,4 +209,22 @@ ok "driver history contains ride $RID"
 req GET /api/rides/active "$PTOKEN"; expect "passenger active ride after completion" 204
 ok "no active ride after completion"
 
+# M7: returning an ongoing ride clears tracking -> the passenger's ride exposes no driver position (second ride).
+BOOK2=$(python3 -c 'import datetime as d,json; print(json.dumps({"kind":"SCHEDULED","fromAddress":"Smoke Start 1, Test","fromLat":59.3293,"fromLon":18.0686,"toAddress":"Smoke Slut 2, Test","toLat":59.34,"toLon":18.09,"scheduledAt":(d.datetime.now(d.timezone.utc)+d.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")}))')
+req POST /api/rides "$PTOKEN" "$BOOK2" "smoke-r-$(python3 -c 'import uuid; print(uuid.uuid4())')"; expect "book ride 2" 200
+RID2=$(jget 'd["id"]')
+[ -n "$RID2" ] || fail "book ride 2 returned no id"
+req POST "/api/driver/rides/$RID2/accept" "$DTOKEN" '{"confirmProximity":true}'; expect "accept ride 2" 200
+req POST "/api/driver/rides/$RID2/start" "$DTOKEN"; expect "start ride 2" 200
+req POST "/api/driver/rides/$RID2/location" "$DTOKEN" '{"lat":59.331,"lon":18.07,"accuracy":10}'
+case "$CODE" in 200|204) ;; *) fail "location ride 2: expected 200/204, got $CODE";; esac
+req GET "/api/rides/$RID2" "$PTOKEN"; expect "passenger ride 2 while en route" 200
+[ "$(jget 'd.get("lastDriverLat") is not None')" = "True" ] || fail "en-route ride exposes no driver position"
+req POST "/api/driver/rides/$RID2/return" "$DTOKEN" '{"reason":"smoke"}'; expect "return ride 2" 200
+req GET "/api/rides/$RID2" "$PTOKEN"; expect "passenger ride 2 after return" 200
+[ "$(jget 'd.get("lastDriverLat") is None and d.get("lastDriverLon") is None and d.get("lastLocationAt") is None')" = "True" ] \
+  || fail "passenger ride still exposes a driver position after return"
+ok "no driver position on the passenger ride after return"
+req POST "/api/rides/$RID2/cancel" "$PTOKEN" '{"reason":"smoke cleanup","confirm":true}'; ok "ride 2 cleaned up (cancel -> HTTP $CODE)"
+
 echo "SMOKE PASS ($BASE, version=$VERSION)"
