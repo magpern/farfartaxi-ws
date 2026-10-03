@@ -53,6 +53,9 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            GIT_SHA=${{ github.sha }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           tags: |

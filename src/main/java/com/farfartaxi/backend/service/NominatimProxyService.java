@@ -1,5 +1,6 @@
 package com.farfartaxi.backend.service;
 
+import com.farfartaxi.backend.observability.AppMetrics;
 import java.net.URI;
 import java.util.function.Function;
 import org.springframework.stereotype.Service;
@@ -26,7 +27,10 @@ public class NominatimProxyService {
     private final Object throttleLock = new Object();
     private long nextAllowedAtMillis;
 
-    public NominatimProxyService() {
+    private final AppMetrics metrics;
+
+    public NominatimProxyService(AppMetrics metrics) {
+        this.metrics = metrics;
         this.client = RestClient.builder().baseUrl(BASE).build();
     }
 
@@ -35,13 +39,16 @@ public class NominatimProxyService {
             return null;
         }
         int z = Math.clamp(zoom, 1, 18);
-        return executeGet(b -> b.path("/reverse")
+        long t0 = System.nanoTime();
+        String body = executeGet(b -> b.path("/reverse")
                 .queryParam("format", "jsonv2")
                 .queryParam("addressdetails", "1")
                 .queryParam("zoom", z)
                 .queryParam("lat", lat)
                 .queryParam("lon", lon)
                 .build());
+        metrics.geocodeReverse(body == null ? "error" : "ok", System.nanoTime() - t0);
+        return body;
     }
 
     public String search(String q, int limit, String countrycodes) {
@@ -51,13 +58,17 @@ public class NominatimProxyService {
         int lim = Math.clamp(limit, 1, 10);
         String rawCc = countrycodes == null || countrycodes.isBlank() ? "se" : countrycodes.trim().toLowerCase();
         final String cc = rawCc.matches("[a-z]{2}") ? rawCc : "se";
-        return executeGet(b -> b.path("/search")
+        long t0 = System.nanoTime();
+        String body = executeGet(b -> b.path("/search")
                 .queryParam("format", "jsonv2")
                 .queryParam("addressdetails", "1")
                 .queryParam("limit", lim)
                 .queryParam("countrycodes", cc)
                 .queryParam("q", q)
                 .build());
+        String outcome = body == null ? "error" : (body.isBlank() || body.trim().equals("[]") ? "empty" : "ok");
+        metrics.geocodeSearch(outcome, System.nanoTime() - t0);
+        return body;
     }
 
     private String executeGet(Function<UriBuilder, URI> uriSpec) {

@@ -1,5 +1,6 @@
 package com.farfartaxi.backend.service;
 
+import com.farfartaxi.backend.observability.AppMetrics;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -29,10 +30,13 @@ public class OsrmRouteProxyService {
     private final Object throttleLock = new Object();
     private long nextAllowedAtMillis;
     private final long minIntervalMillis;
+    private final AppMetrics metrics;
 
     public OsrmRouteProxyService(
             @Value("${app.routing.osrm-base-url:https://router.project-osrm.org}") String baseUrl,
-            @Value("${app.routing.osrm-min-interval-ms:400}") long minIntervalMillis) {
+            @Value("${app.routing.osrm-min-interval-ms:400}") long minIntervalMillis,
+            AppMetrics metrics) {
+        this.metrics = metrics;
         String normalized = baseUrl == null ? "https://router.project-osrm.org" : baseUrl.trim().replaceAll("/+$", "");
         this.baseUrl = normalized;
         this.minIntervalMillis = Math.max(0L, minIntervalMillis);
@@ -59,7 +63,10 @@ public class OsrmRouteProxyService {
                     fromLat,
                     toLon,
                     toLat);
-        return getJson(path);
+        long t0 = System.nanoTime();
+        String body = getJson(path);
+        metrics.route(body == null ? "error" : "ok", System.nanoTime() - t0);
+        return body;
     }
 
     private static boolean finiteLatLon(double lat, double lon) {
