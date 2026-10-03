@@ -212,7 +212,12 @@ public class RideService {
         UserEntity user = currentUserService.requireUser();
         RideEntity ride = mustFindRide(rideId, user);
         requirePassenger(ride, user);
-        machine.require(ride, RideStatus.REQUESTED, Actor.PASSENGER);
+        if (ride.getStatus() != RideStatus.NO_DRIVER) {
+            throw AppException.conflict("INVALID_TRANSITION", "Det går bara att fortsätta vänta när ingen förare tackat ja");
+        }
+        if (ride.getKind() == RideKind.SCHEDULED && !ride.getScheduledAt().isAfter(clock.instant())) {
+            throw AppException.conflict("INVALID_TRANSITION", "Tiden har passerat — ändra tiden för att söka förare igen");
+        }
         if (!offers.canKeepWaiting(ride)) {
             throw AppException.conflict("ALL_DECLINED", "Alla förare har tackat nej");
         }
