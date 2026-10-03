@@ -28,11 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
+      # Cross-repo milestones: use the farfartaxi-web branch with the same name if it exists, else main.
+      - name: Resolve farfartaxi-web ref
+        id: webref
+        run: |
+          b="${{ github.head_ref || github.ref_name }}"
+          if git ls-remote --exit-code --heads https://github.com/magpern/farfartaxi-web.git "$b" >/dev/null 2>&1; then echo "ref=$b" >> "$GITHUB_OUTPUT"; else echo "ref=main" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         with:
           repository: magpern/farfartaxi-web
           path: farfartaxi-web
-          ref: main
+          ref: ${{ steps.webref.outputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -53,11 +59,17 @@ jobs:
       TEST_DRIVER_PASSWORD: e2e-only-driver-pw-1
     steps:
       - uses: actions/checkout@v4
+      # Cross-repo milestones: use the farfartaxi-web branch with the same name if it exists, else main.
+      - name: Resolve farfartaxi-web ref
+        id: webref
+        run: |
+          b="${{ github.head_ref || github.ref_name }}"
+          if git ls-remote --exit-code --heads https://github.com/magpern/farfartaxi-web.git "$b" >/dev/null 2>&1; then echo "ref=$b" >> "$GITHUB_OUTPUT"; else echo "ref=main" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         with:
           repository: magpern/farfartaxi-web
           path: farfartaxi-web
-          ref: main
+          ref: ${{ steps.webref.outputs.ref }}
       - name: Start stack
         env:
           WEB_DIR: farfartaxi-web
