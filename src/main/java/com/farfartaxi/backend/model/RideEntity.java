@@ -21,6 +21,9 @@ public class RideEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "is_test", nullable = false)
+    private boolean test;
+
     @ManyToOne(optional = false)
     @JoinColumn(name = "passenger_id")
     private UserEntity passenger;
@@ -287,5 +290,13 @@ public class RideEntity {
 
     public void setShareExpiresAt(Instant shareExpiresAt) {
         this.shareExpiresAt = shareExpiresAt;
+    }
+
+    public boolean isTest() {
+        return test;
+    }
+
+    public void setTest(boolean test) {
+        this.test = test;
     }
 }

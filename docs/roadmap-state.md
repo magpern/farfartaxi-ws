@@ -16,13 +16,15 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 ## Flyway migration reservations (owned by master)
 | Version | Milestone | Purpose |
 |---|---|---|
-| V3 | M0A | user approval (pending accounts) |
+| V3 | M0A | users.approved, credentials_changed_at, version (deployed) |
+| V4 | M0B | test identities (users.is_test, rides.is_test) |
 
 ## Milestones
 | Milestone | Status |
 |---|---|
-| M0A Security containment | in progress |
-| M0B Baseline + safety net | pending |
+| M0A Security containment | **done** (v1.3.0, deployed 2026-10-03 17:13) |
+
+| M0B Baseline + safety net | in progress |
 | M0C Auth modernization | pending |
 | M1 Core ride model | pending |
 | M2 Mobile UX shell | pending |
@@ -43,7 +45,11 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
   - Verified: admin login with new password 200, with old default 401; frontend 200; no new ERROR lines.
 - **Incident (found by M0A review, 2026-10-03 16:51):** the initial JWT check compared only against `replace-this-...`. Re-check against all 4 JWT secret values ever published in the repo found that the production JWT secret **matched a published value** (forgeable tokens). Rotated immediately (64-char random, .env backup `.env.bak-20261003T165108`). Note: `docker compose up -d backend` did NOT recreate the container on an .env-only change; `--force-recreate` was required. Verified: container has new secret, token signed with old secret -> 401, new token -> 200, frontend 200. All users must log in once again.
   - Lesson applied for the rest of the run: secret checks compare against every value ever published; after secret changes always `--force-recreate` and verify inside the container.
-- Code part: implemented (backend `ccff6b0`, frontend `0b5a60e`), deep review #1 NOT CLEAN (2 blocking: working placeholders in .env.example; JWT evidence gap -> resolved above). Review fixes in progress.
+- Code: ws PR #1 -> `44630b4`, web PR #1 -> `11c5b28`, release tag `v1.3.0` (both repos).
+- Reviews (Opus, independent): #1 NOT CLEAN (working placeholders in .env.example; JWT evidence gap) -> fixed; #2 NOT CLEAN (pre-link token could re-set password) -> `credentials_changed_at`; #3 NOT CLEAN (same-second race) -> exact `cv` claim; #4 NOT CLEAN (lost update vs Google link) -> `@Version` optimistic locking; final master check CLEAN.
+- Migration gate: V3 applied + validated against a restored copy of the production dump on the Pi (disposable containers), fresh registration 403 on open rides/booking.
+- Deployed images: backend `v1.3.0@sha256:dc8f3e63d07f6d12ed2e31ec55d6fa8ef6744e49a76a0e51dd7ab996eaee6ef7`, frontend `v1.3.0@sha256:c13d94f6a68b78574e3bbf687db009c96575b5a00ae0898aa9317d5ff3aeb021`, postgres `17@sha256:28ed727a...`. Pre-deploy dump `backups/farfartaxi-*-pre-v1.3.0.dump`. Rollback refs v1.2.0 in prod compose (with pending-user rollback warning).
+- Production gates (public URL): admin login ok, old default admin password 401; fresh registration approved=false, 403 PENDING_APPROVAL on /api/driver/rides/open, /api/rides/my, /api/saved-places, POST /api/rides; /me 200; after approval USER 403 on open rides, 200 on own rides; test user deleted; 5433 and 8081 closed from LAN; frontend 200; 0 ERROR log lines. Temporary .env backups deleted.
 - Parking lot additions from review: open unauthenticated proxies `/api/public/geocode/**` and `/api/public/route/**` (geocode search is removed in M3); no rate limit on registration.
 
 ## Deviations

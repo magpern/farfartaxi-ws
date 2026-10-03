@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') and @currentUserService.isRealUser()")
 public class AdminController {
     private final AdminService adminService;
     private final RideService rideService;
@@ -99,6 +99,7 @@ public class AdminController {
             Map.entry("hasLocalPassword", hasLocal),
             Map.entry("enabled", user.isEnabled()),
             Map.entry("approved", user.isApproved()),
+            Map.entry("isTest", user.isTest()),
             Map.entry("createdAt", user.getCreatedAt() == null ? "" : user.getCreatedAt().toString()),
             Map.entry("phone", user.getPhone() == null ? "" : user.getPhone()),
             Map.entry("vehicleNote", user.getVehicleNote() == null ? "" : user.getVehicleNote())

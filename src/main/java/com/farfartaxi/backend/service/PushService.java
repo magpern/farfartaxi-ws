@@ -17,13 +17,16 @@ public class PushService {
         this.subscriptionRepository = subscriptionRepository;
     }
 
-    public void notifyRole(Role role, String title, String body) {
-        List<PushSubscriptionEntity> subscribers = subscriptionRepository.findByUser_Role(role);
-        subscribers.forEach(s -> LOG.info("Push -> {} {} / {}", s.getUser().getEmail(), title, body));
+    List<PushSubscriptionEntity> recipientsFor(Role role, boolean isTest) {
+        return subscriptionRepository.findByUser_RoleAndUser_Test(role, isTest);
+    }
+
+    public void notifyRole(Role role, boolean isTest, String title, String body) {
+        recipientsFor(role, isTest).forEach(s -> LOG.info("Push -> user {} {} / {}", s.getUser().getId(), title, body));
     }
 
     public void notifyUser(Long userId, String title, String body) {
         List<PushSubscriptionEntity> subscribers = subscriptionRepository.findByUserId(userId);
-        subscribers.forEach(s -> LOG.info("Push -> {} {} / {}", s.getUser().getEmail(), title, body));
+        subscribers.forEach(s -> LOG.info("Push -> user {} {} / {}", s.getUser().getId(), title, body));
     }
 }

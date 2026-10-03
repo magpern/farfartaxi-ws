@@ -1,0 +1,57 @@
+# Throwaway stack for CI / local E2E. Everything here is test-only; never reuse these values anywhere real.
+#   WEB_DIR=../farfartaxi-web docker compose -f docker-compose.e2e.yml up -d --build --wait
+name: farfartaxi-e2e
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: farfartaxi
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e-only-db-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e -d farfartaxi"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/farfartaxi
+      SPRING_DATASOURCE_USERNAME: e2e
+      SPRING_DATASOURCE_PASSWORD: e2e-only-db-password
+      APP_JWT_SECRET: e2e-only-jwt-secret-0123456789-not-for-real-use-xyzzy
+      FARFARTAXI_ADMIN_EMAIL: e2e-admin@farfartaxi.invalid
+      FARFARTAXI_ADMIN_PASSWORD: e2e-only-admin-password-1
+      FARFARTAXI_TEST_PASSENGER_PASSWORD: ${TEST_PASSENGER_PASSWORD:-e2e-only-passenger-pw-1}
+      FARFARTAXI_TEST_DRIVER_PASSWORD: ${TEST_DRIVER_PASSWORD:-e2e-only-driver-pw-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # JRE image has no curl; plain TCP check on the app port.
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8080'"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ${WEB_DIR:-../farfartaxi-web}
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${E2E_PORT:-8099}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

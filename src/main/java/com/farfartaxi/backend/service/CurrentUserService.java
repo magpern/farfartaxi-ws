@@ -24,4 +24,19 @@ public class CurrentUserService {
         return userRepository.findById(securityUser.getId())
             .orElseThrow(() -> new AppException(HttpStatus.UNAUTHORIZED, "User not found"));
     }
+
+    /** The authenticated user, or null for anonymous requests. */
+    public UserEntity currentUserOrNull() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof SecurityUser securityUser)) {
+            return null;
+        }
+        return userRepository.findById(securityUser.getId()).orElse(null);
+    }
+
+    /** True only for an authenticated real (non-test) user; used to fence test accounts out of admin actions. */
+    public boolean isRealUser() {
+        UserEntity u = currentUserOrNull();
+        return u != null && !u.isTest();
+    }
 }

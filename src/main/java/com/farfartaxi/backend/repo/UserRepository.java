@@ -22,5 +22,5 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     long countByRoleAndEnabled(Role role, boolean enabled);
 
-    List<UserEntity> findByEnabledTrueAndApprovedTrueOrderByFullNameAsc();
+    List<UserEntity> findByEnabledTrueAndApprovedTrueAndTestOrderByFullNameAsc(boolean test);
 }

@@ -20,6 +20,9 @@ public class UserEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "is_test", nullable = false)
+    private boolean test;
+
     /** Optimistic lock: stale saves (e.g. slow password change vs. concurrent Google link) must fail, not overwrite. */
     @Version
     @Column(nullable = false)
@@ -185,5 +188,13 @@ public class UserEntity {
 
     public long getVersion() {
         return version;
+    }
+
+    public boolean isTest() {
+        return test;
+    }
+
+    public void setTest(boolean test) {
+        this.test = test;
     }
 }

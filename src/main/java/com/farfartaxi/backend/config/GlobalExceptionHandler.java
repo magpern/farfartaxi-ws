@@ -45,6 +45,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(409).body(Map.of("error", "Account was changed concurrently, please retry"));
     }
 
+    /** Framework errors that already carry an HTTP status (404 no resource, 405, 415, missing params...). */
+    @ExceptionHandler({
+        org.springframework.web.servlet.resource.NoResourceFoundException.class,
+        org.springframework.web.HttpRequestMethodNotSupportedException.class,
+        org.springframework.web.HttpMediaTypeNotSupportedException.class,
+        org.springframework.web.bind.MissingServletRequestParameterException.class,
+        org.springframework.web.ErrorResponseException.class,
+        org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class
+    })
+    public ResponseEntity<Map<String, String>> onFrameworkError(Exception ex, HttpServletRequest request) {
+        int status = ex instanceof org.springframework.web.ErrorResponse er ? er.getStatusCode().value() : 400;
+        log.warn("Request error {} {} {}: {}", request.getMethod(), request.getRequestURI(), status, ex.getMessage());
+        String message = status == 404 ? "Not found" : "Bad request";
+        return ResponseEntity.status(status).body(Map.of("error", message));
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> onUnreadable(Exception ex, HttpServletRequest request) {
+        log.warn("Unreadable request body {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.badRequest().body(Map.of("error", "Malformed request body"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> onUnhandled(Exception ex, HttpServletRequest request) {
         log.error("Unhandled server error {} {}", request.getMethod(), request.getRequestURI(), ex);
