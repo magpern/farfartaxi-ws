@@ -49,6 +49,18 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
     @Query("update RideEntity r set r.refusalDriver = null where r.refusalDriver.id = :userId")
     void clearRefusalDriver(@org.springframework.data.repository.query.Param("userId") Long userId);
 
+    /** Position retention: ended (COMPLETED completed_at / CANCELLED cancelled_at) at or before the cutoff. */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+        update RideEntity r set r.lastDriverLat = null, r.lastDriverLon = null, r.lastLocationAccuracyM = null,
+            r.etaLat = null, r.etaLon = null
+        where (r.lastDriverLat is not null or r.lastDriverLon is not null or r.lastLocationAccuracyM is not null
+            or r.etaLat is not null or r.etaLon is not null)
+          and ((r.status = com.farfartaxi.backend.model.RideStatus.COMPLETED and coalesce(r.completedAt, r.updatedAt) <= :cutoff)
+            or (r.status = com.farfartaxi.backend.model.RideStatus.CANCELLED and coalesce(r.cancelledAt, r.updatedAt) <= :cutoff))
+        """)
+    int clearPositionsOfRidesEndedBefore(@org.springframework.data.repository.query.Param("cutoff") Instant cutoff);
+
     @Modifying
     @Query("delete from RideEntity r where r.test = true")
     int deleteAllTestRides();

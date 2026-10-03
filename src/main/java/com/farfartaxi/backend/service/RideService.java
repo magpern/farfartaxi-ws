@@ -5,7 +5,11 @@ import com.farfartaxi.backend.api.dto.RideDtos.BookRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.DriverStatsResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.EditRideRequest;
 import com.farfartaxi.backend.api.dto.RideDtos.LocationUpdateRequest;
+import com.farfartaxi.backend.api.dto.RideDtos.PublicShareResponse;
 import com.farfartaxi.backend.api.dto.RideDtos.RideResponse;
+import com.farfartaxi.backend.api.dto.RideDtos.ShareDriver;
+import com.farfartaxi.backend.api.dto.RideDtos.ShareLinkResponse;
+import com.farfartaxi.backend.api.dto.RideDtos.SharePlace;
 import com.farfartaxi.backend.api.dto.RideDtos.SubmitFeedbackRequest;
 import com.farfartaxi.backend.model.OfferStatus;
 import com.farfartaxi.backend.model.RideEntity;
@@ -44,6 +48,12 @@ public class RideService {
     private static final Duration NO_DRIVER_UPCOMING_GRACE = Duration.ofHours(24);
     private static final List<String> REMINDER_KINDS = List.of(RideTimerService.REMINDER_24H, RideTimerService.REMINDER_2H,
         RideTimerService.URGENT, RideTimerService.DRIVER_REMINDER_30M, NOW_REPUSH);
+    private static final java.security.SecureRandom SHARE_RANDOM = new java.security.SecureRandom();
+    private static final Duration SHARE_GRACE = Duration.ofHours(1);
+    private static final java.util.Set<RideStatus> SHAREABLE = java.util.EnumSet.of(RideStatus.REQUESTED,
+        RideStatus.ACCEPTED, RideStatus.EN_ROUTE, RideStatus.ARRIVED, RideStatus.PICKED_UP);
+    private static final Duration ETA_MIN_INTERVAL = Duration.ofSeconds(30);
+    private static final double ETA_MIN_MOVE_METERS = 100;
     private static final double MATERIAL_PICKUP_METERS = 500;
     private static final Duration MATERIAL_TIME_SHIFT = Duration.ofMinutes(30);
     private static final double MATERIAL_ROUTE_RATIO = 1.25;
@@ -70,6 +80,7 @@ public class RideService {
     private final org.springframework.transaction.support.TransactionTemplate freshTx;
     private final Clock clock;
     private final double defaultEtaKmh;
+    private final String publicBaseUrl;
 
     public RideService(
         RideRepository rideRepository,
@@ -92,8 +103,10 @@ public class RideService {
         RideResponseFactory responses,
         org.springframework.transaction.support.TransactionTemplate txTemplate,
         Clock clock,
-        @Value("${app.eta.default-kmh}") double defaultEtaKmh
+        @Value("${app.eta.default-kmh}") double defaultEtaKmh,
+        @Value("${app.public-base-url:https://farfartaxi.pernemark.se}") String publicBaseUrl
     ) {
+        this.publicBaseUrl = publicBaseUrl.trim().replaceAll("/+$", "");
         this.rideRepository = rideRepository;
         this.rideFeedbackRepository = rideFeedbackRepository;
         this.userRepository = userRepository;
@@ -222,6 +235,7 @@ public class RideService {
         }
         offers.withdrawAll(ride);
         ride.setCancelReason(reason);
+        ride.setCancelledAt(clock.instant());
         ride.setUrgent(false);
         ride = rideRepository.save(ride);
         events.record(ride, user.getId(), RideEventRecorder.CANCELLED, reason);
@@ -648,11 +662,10 @@ public class RideService {
         }
         ride.setLastDriverLat(request.lat());
         ride.setLastDriverLon(request.lon());
-        ride.setLastLocationAt(clock.instant());
-        // heading to the pickup until the passenger is on board, then to the destination
-        boolean toPickup = st != RideStatus.PICKED_UP;
-        ride.setEtaMinutes(calculateEtaMinutes(request.lat(), request.lon(),
-            toPickup ? ride.getFromLat() : ride.getToLat(), toPickup ? ride.getFromLon() : ride.getToLon()));
+        ride.setLastLocationAccuracyM(request.accuracy());
+        Instant now = clock.instant();
+        ride.setLastLocationAt(now);
+        updateEta(ride, request.lat(), request.lon(), now);
         ride = rideRepository.save(ride);
         if (st == RideStatus.EN_ROUTE && ride.getEtaMinutes() != null && ride.getEtaMinutes() <= ETA_PUSH_MINUTES
             && markNotificationSent(rideId, "ETA_5MIN")) {
@@ -661,6 +674,38 @@ public class RideService {
         }
         responses.publish(ride);
         return responses.toResponse(ride, driver, null);
+    }
+
+    /**
+     * Target = pickup until the passenger is on board, then the destination. Recompute only when (more than 30 s since
+     * the last computation AND moved more than 100 m since it), the status changed since, the target changed, or there
+     * is no ETA yet; otherwise the previous ETA stands (ETA_5MIN uses the stored value).
+     */
+    private void updateEta(RideEntity ride, double lat, double lon, Instant now) {
+        boolean toPickup = ride.getStatus() != RideStatus.PICKED_UP;
+        String target = toPickup ? "PICKUP" : "DESTINATION";
+        boolean recompute = ride.getEtaMinutes() == null || ride.getEtaComputedAt() == null
+            || ride.getEtaLat() == null || ride.getEtaLon() == null || !target.equals(ride.getEtaTarget());
+        if (!recompute) {
+            Instant lastStatusChange = java.util.stream.Stream.of(ride.getStartedAt(), ride.getArrivedAt(), ride.getPickedUpAt())
+                .filter(java.util.Objects::nonNull).max(Instant::compareTo).orElse(null);
+            boolean statusChanged = lastStatusChange != null && lastStatusChange.isAfter(ride.getEtaComputedAt());
+            boolean elapsed = Duration.between(ride.getEtaComputedAt(), now).compareTo(ETA_MIN_INTERVAL) > 0;
+            boolean moved = Geo.haversineMeters(ride.getEtaLat(), ride.getEtaLon(), lat, lon) > ETA_MIN_MOVE_METERS;
+            recompute = statusChanged || (elapsed && moved);
+        }
+        if (!recompute) {
+            return;
+        }
+        double toLat = toPickup ? ride.getFromLat() : ride.getToLat();
+        double toLon = toPickup ? ride.getFromLon() : ride.getToLon();
+        Double seconds = routes.drivingSeconds(lat, lon, toLat, toLon);
+        ride.setEtaMinutes(seconds != null ? Math.max(1, (int) Math.round(seconds / 60.0))
+            : calculateEtaMinutes(lat, lon, toLat, toLon));
+        ride.setEtaTarget(target);
+        ride.setEtaComputedAt(now);
+        ride.setEtaLat(lat);
+        ride.setEtaLon(lon);
     }
 
     /** Once-only guard (ride_notifications_sent): true when this call recorded the notification. */
@@ -691,16 +736,24 @@ public class RideService {
     }
 
     @Transactional
-    public String createShareToken(Long rideId, String baseUrl) {
+    public ShareLinkResponse createShare(Long rideId) {
         UserEntity passenger = currentUserService.requireUser();
         RideEntity ride = mustFindRide(rideId, passenger);
         requirePassenger(ride, passenger);
-        String token = UUID.randomUUID().toString().replace("-", "");
-        ride.setShareToken(token);
-        ride.setShareExpiresAt(clock.instant().plusSeconds(60L * 60L * 8L));
-        rideRepository.save(ride);
+        if (!SHAREABLE.contains(ride.getStatus())) {
+            throw AppException.conflict("SHARE_NOT_ALLOWED", "Resan kan inte delas just nu");
+        }
+        if (ride.getShareToken() == null || ride.getShareRevokedAt() != null) {
+            byte[] raw = new byte[16];
+            SHARE_RANDOM.nextBytes(raw);
+            ride.setShareToken(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(raw));
+            ride.setShareRevokedAt(null);
+            rideRepository.save(ride);
+        }
         events.record(ride, passenger.getId(), RideEventRecorder.SHARE_CREATED);
-        return baseUrl + "/api/rides/share/" + token;
+        Instant ended = ride.endedAt();
+        return new ShareLinkResponse(ride.getShareToken(), ended == null ? null : ended.plus(SHARE_GRACE),
+            publicBaseUrl + "/dela/" + ride.getShareToken());
     }
 
     @Transactional
@@ -708,25 +761,34 @@ public class RideService {
         UserEntity passenger = currentUserService.requireUser();
         RideEntity ride = mustFindRide(rideId, passenger);
         requirePassenger(ride, passenger);
-        ride.setShareToken(null);
-        ride.setShareExpiresAt(null);
-        rideRepository.save(ride);
+        if (ride.getShareToken() != null && ride.getShareRevokedAt() == null) {
+            ride.setShareRevokedAt(clock.instant());
+            rideRepository.save(ride);
+        }
         events.record(ride, passenger.getId(), RideEventRecorder.SHARE_REVOKED);
     }
 
-    public RideResponse byShareToken(String token) {
+    /** Anonymous view for the public share page: 404 unknown, 410 revoked or ended more than 1 h ago. */
+    @Transactional
+    public PublicShareResponse publicShare(String token) {
         RideEntity ride = rideRepository.findByShareToken(token)
             .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Share link not found"));
-        if (ride.getShareExpiresAt() == null || ride.getShareExpiresAt().isBefore(clock.instant())) {
+        Instant now = clock.instant();
+        Instant ended = ride.getShareRevokedAt() != null ? null : ride.endedAt();
+        if (ride.getShareRevokedAt() != null || (ended != null && !now.isBefore(ended.plus(SHARE_GRACE)))) {
             throw new AppException(HttpStatus.GONE, "Share link expired");
         }
-        // Anonymous viewers may follow any share link; an authenticated user must be in the ride's world.
-        UserEntity viewer = currentUserService.currentUserOrNull();
-        if (viewer != null) {
-            policy.requireSameWorld(viewer, ride);
-        }
-        // Share links are always rendered anonymously: no phones, passenger name, note or actions.
-        return responses.toResponse(ride, null, null);
+        UserEntity driver = ride.getAcceptedByDriver();
+        return new PublicShareResponse(
+            PushArgs.firstName(ride.getPassenger().getFullName()),
+            driver == null ? null : PushArgs.firstName(driver.getFullName()),
+            ride.getStatus().name(), "ride.status." + ride.getStatus().name(),
+            ride.getScheduledAt(),
+            new SharePlace(ride.getFromLat(), ride.getFromLon(), ride.getFromAddress()),
+            new SharePlace(ride.getToLat(), ride.getToLon(), ride.getToAddress()),
+            ride.getLastDriverLat() == null || ride.getLastDriverLon() == null ? null
+                : new ShareDriver(ride.getLastDriverLat(), ride.getLastDriverLon(), ride.getLastLocationAccuracyM(), ride.getLastLocationAt()),
+            ride.getEtaMinutes(), ride.getEtaTarget(), RideResponseFactory.isLocationStale(ride, now));
     }
 
     @Transactional

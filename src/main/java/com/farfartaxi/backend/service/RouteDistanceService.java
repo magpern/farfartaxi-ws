@@ -31,4 +31,22 @@ public class RouteDistanceService {
         }
         return Geo.haversineMeters(fromLat, fromLon, toLat, toLon);
     }
+
+    private static final java.time.Duration ETA_TIMEOUT = java.time.Duration.ofSeconds(3);
+
+    /** OSRM driving duration in seconds (short timeout), or null when OSRM is unavailable. */
+    public Double drivingSeconds(double fromLat, double fromLon, double toLat, double toLon) {
+        try {
+            String json = osrm.drivingRoute(fromLat, fromLon, toLat, toLon, ETA_TIMEOUT);
+            if (json != null) {
+                JsonNode d = mapper.readTree(json).path("routes").path(0).path("duration");
+                if (d.isNumber()) {
+                    return d.asDouble();
+                }
+            }
+        } catch (Exception ignored) {
+            // caller falls back to haversine
+        }
+        return null;
+    }
 }

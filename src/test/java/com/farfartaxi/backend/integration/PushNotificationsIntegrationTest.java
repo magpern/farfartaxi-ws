@@ -324,6 +324,7 @@ class PushNotificationsIntegrationTest extends M1TestSupport {
     }
 
     private int location(long id, double lat) throws Exception {
+        clock.advance(java.time.Duration.ofSeconds(31)); // the ETA is only recomputed after 30 s (and 100 m, M7)
         return call("POST", "/api/driver/rides/" + id + "/location", d1, loc(lat), 200).body().get("etaMinutes").asInt();
     }
 

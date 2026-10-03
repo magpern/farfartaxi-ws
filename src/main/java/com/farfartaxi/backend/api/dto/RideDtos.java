@@ -94,8 +94,33 @@ public final class RideDtos {
         String myOfferStatus,
         Boolean offerPriority,
         List<String> availableActions,
-        boolean feedbackGiven
+        boolean feedbackGiven,
+        Double lastLocationAccuracyM,
+        String etaTarget,
+        boolean locationStale
     ) {
+    }
+
+    /** Anonymous, first-name-only view behind a share link: no phones, note, full names or ids. */
+    public record PublicShareResponse(
+        String passengerFirstName,
+        String driverFirstName,
+        String status,
+        String statusLabelKey,
+        Instant scheduledAt,
+        SharePlace pickup,
+        SharePlace destination,
+        ShareDriver driver,
+        Integer etaMinutes,
+        String etaTarget,
+        boolean locationStale
+    ) {
+    }
+
+    public record SharePlace(double lat, double lon, String label) {
+    }
+
+    public record ShareDriver(double lat, double lon, Double accuracyM, Instant updatedAt) {
     }
 
     public record LocationUpdateRequest(@NotNull Double lat, @NotNull Double lon, Double accuracy) {

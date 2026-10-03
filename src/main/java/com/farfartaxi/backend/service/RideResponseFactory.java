@@ -25,9 +25,11 @@ public class RideResponseFactory {
     private final RideRealtimeService realtime;
     private final UserRepository users;
     private final RideFeedbackRepository feedback;
+    private final java.time.Clock clock;
 
     public RideResponseFactory(RideOfferService offers, RideRealtimeService realtime, UserRepository users,
-                               RideFeedbackRepository feedback) {
+                               RideFeedbackRepository feedback, java.time.Clock clock) {
+        this.clock = clock;
         this.offers = offers;
         this.realtime = realtime;
         this.users = users;
@@ -81,8 +83,19 @@ public class RideResponseFactory {
             myOffer.map(o -> o.getStatus().name()).orElse(null),
             myOffer.map(RideOfferEntity::isPriority).orElse(null),
             viewer == null ? List.of() : availableActions(ride, viewer, isPassenger, isDriver, myOffer),
-            feedbackGiven
+            feedbackGiven,
+            ride.getLastLocationAccuracyM(), ride.getEtaTarget(), isLocationStale(ride, clock.instant())
         );
+    }
+
+    /** Stale = the driver should be sending positions (EN_ROUTE..PICKED_UP) but the last one is missing or older than 2 min. */
+    public static boolean isLocationStale(RideEntity ride, java.time.Instant now) {
+        RideStatus st = ride.getStatus();
+        if (st != RideStatus.EN_ROUTE && st != RideStatus.ARRIVED && st != RideStatus.PICKED_UP) {
+            return false;
+        }
+        return ride.getLastLocationAt() == null
+            || ride.getLastLocationAt().isBefore(now.minus(java.time.Duration.ofMinutes(2)));
     }
 
     private List<String> availableActions(RideEntity ride, UserEntity viewer, boolean isPassenger, boolean isDriver,
