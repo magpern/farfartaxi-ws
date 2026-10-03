@@ -2,6 +2,7 @@ package com.farfartaxi.backend.observability;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +18,45 @@ public class AppMetrics {
     /** @param type target ride status / transition name, e.g. BOOKED, ACCEPTED, COMPLETED */
     public void rideTransition(String type, boolean test) {
         registry.counter("farfartaxi.ride.transitions", "type", type == null ? "unknown" : type, "world", test ? "test" : "real").increment();
+    }
+
+    private static String world(boolean test) {
+        return test ? "test" : "real";
+    }
+
+    /** REQUESTED to ACCEPTED, per acceptance. */
+    public void rideTimeToAccept(Duration d, boolean test) {
+        waitTimer("farfartaxi.ride.time_to_accept", test).record(nonNegative(d));
+    }
+
+    /** ARRIVED to PICKED_UP. */
+    public void ridePickupWait(Duration d, boolean test) {
+        waitTimer("farfartaxi.ride.pickup_wait", test).record(nonNegative(d));
+    }
+
+    public void rideNoDriver(boolean test) {
+        registry.counter("farfartaxi.ride.no_driver", "world", world(test)).increment();
+    }
+
+    /** One accepted telemetry event; {@code name} is always from the fixed allowlist (low cardinality). */
+    public void appEvent(String name, boolean test) {
+        registry.counter("farfartaxi.app_events", "name", name, "world", world(test)).increment();
+    }
+
+    /** Telemetry events that were not stored; @param reason unknown_name|rate_limited|rejected|invalid */
+    public void appEventDropped(String reason, boolean test) {
+        registry.counter("farfartaxi.app_events.dropped", "reason", reason, "world", world(test)).increment();
+    }
+
+    private Timer waitTimer(String name, boolean test) {
+        return Timer.builder(name).tag("world", world(test))
+            .publishPercentileHistogram()
+            .minimumExpectedValue(Duration.ofSeconds(1)).maximumExpectedValue(Duration.ofHours(6))
+            .register(registry);
+    }
+
+    private static Duration nonNegative(Duration d) {
+        return d == null || d.isNegative() ? Duration.ZERO : d;
     }
 
     public void pushSent(boolean ok) {

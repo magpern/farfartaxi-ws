@@ -1,6 +1,11 @@
 package com.farfartaxi.backend.config;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -26,6 +31,37 @@ import java.util.List;
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
+    /**
+     * Management port only ({@link EndpointRequest} matches nothing on the app port): /actuator/health and /info stay open,
+     * /actuator/prometheus needs HTTP basic as user "prometheus". With no password configured nobody can authenticate
+     * (fail closed). Everything else on the management port is denied.
+     */
+    @Bean
+    @Order(1)
+    public SecurityFilterChain managementSecurityFilterChain(
+        HttpSecurity http,
+        @Value("${app.management.prometheus-password:}") String prometheusPassword
+    ) throws Exception {
+        PasswordEncoder encoder = new BCryptPasswordEncoder();
+        InMemoryUserDetailsManager users = new InMemoryUserDetailsManager();
+        if (prometheusPassword != null && !prometheusPassword.isBlank()) {
+            users.createUser(User.withUsername("prometheus").password(encoder.encode(prometheusPassword)).roles("PROMETHEUS").build());
+        }
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(users);
+        provider.setPasswordEncoder(encoder);
+        http
+            .securityMatcher(EndpointRequest.toAnyEndpoint())
+            .csrf(AbstractHttpConfigurer::disable)
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authenticationProvider(provider)
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(EndpointRequest.to("health", "info")).permitAll()
+                .requestMatchers(EndpointRequest.to("prometheus")).hasRole("PROMETHEUS")
+                .anyRequest().denyAll())
+            .httpBasic(basic -> basic.realmName("farfartaxi-management"));
+        return http.build();
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(
         HttpSecurity http,
@@ -38,7 +74,7 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/actuator/health/**", "/actuator/info", "/actuator/prometheus", "/api/public/**").permitAll()
+                .requestMatchers("/api/auth/**", "/actuator/**", "/api/public/**").permitAll() // /actuator/** is not mapped on the app port (404); the management port is secured by the chain above
                 .anyRequest().hasAnyRole("USER", "DRIVER", "ADMIN"))
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(authenticationEntryPoint)

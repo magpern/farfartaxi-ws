@@ -3,6 +3,7 @@ package com.farfartaxi.backend.service;
 import com.farfartaxi.backend.model.RideEntity;
 import com.farfartaxi.backend.model.RideStatus;
 import com.farfartaxi.backend.repo.RideRepository;
+import com.farfartaxi.backend.observability.AppMetrics;
 import org.springframework.stereotype.Component;
 
 /** Transitions triggered by the system (timers, last offer declined) rather than by a user. */
@@ -14,9 +15,11 @@ public class RideSystemTransitions {
     private final RideEventRecorder events;
     private final PushService push;
     private final RideResponseFactory responses;
+    private final AppMetrics metrics;
 
     public RideSystemTransitions(RideStateMachine machine, RideOfferService offers, RideRepository rides,
-                                 RideEventRecorder events, PushService push, RideResponseFactory responses) {
+                                 RideEventRecorder events, PushService push, RideResponseFactory responses, AppMetrics metrics) {
+        this.metrics = metrics;
         this.machine = machine;
         this.offers = offers;
         this.rides = rides;
@@ -32,6 +35,7 @@ public class RideSystemTransitions {
         offers.expireOpen(ride);
         RideEntity saved = rides.save(ride);
         events.record(saved, null, RideEventRecorder.NO_DRIVER, reason);
+        metrics.rideNoDriver(saved.isTest());
         push.send(saved.getPassenger().getId(), PushCategory.RIDE_UPDATES, "NO_DRIVER", saved.getId(),
             "/app/resa/" + saved.getId(), "ride.no_driver", java.util.List.of());
         responses.publish(saved);
