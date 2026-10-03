@@ -340,6 +340,9 @@ public class RideService {
         if (!passenger.isEnabled()) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Passenger account is disabled");
         }
+        if (!passenger.isApproved()) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Passenger account is not approved");
+        }
         return passenger;
     }
 

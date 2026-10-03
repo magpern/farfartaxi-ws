@@ -6,6 +6,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -19,6 +20,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> onAppException(AppException ex, HttpServletRequest request) {
         log.warn("API error {} {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getStatus().value(), ex.getMessage());
         return ResponseEntity.status(ex.getStatus()).body(Map.of("error", ex.getMessage()));
+    }
+
+    /** Method-security denials (@PreAuthorize) must be 403, not the generic 500 below. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, String>> onAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
+        log.warn("Method security 403 {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

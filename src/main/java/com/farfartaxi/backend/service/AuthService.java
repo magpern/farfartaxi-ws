@@ -47,6 +47,7 @@ public class AuthService {
         user.setFullName(request.fullName());
         user.setRole(Role.USER);
         user.setEnabled(true);
+        user.setApproved(false);
         user.setMustChangePassword(false);
         user = userRepository.save(user);
         return toAuthResponse(user);
@@ -105,6 +106,7 @@ public class AuthService {
         created.setFullName(gp.fullName());
         created.setRole(Role.USER);
         created.setEnabled(true);
+        created.setApproved(false);
         created.setMustChangePassword(false);
         return toAuthResponse(userRepository.save(created));
     }
@@ -150,7 +152,7 @@ public class AuthService {
     public UserView toUserView(UserEntity user) {
         boolean hasLocal = user.getPasswordHash() != null;
         boolean mustPw = hasLocal && user.isMustChangePassword();
-        return new UserView(user.getId(), user.getEmail(), user.getFullName(), user.getRole().name(), mustPw, hasLocal);
+        return new UserView(user.getId(), user.getEmail(), user.getFullName(), user.getRole().name(), mustPw, hasLocal, user.isApproved());
     }
 
     private AuthResponse toAuthResponse(UserEntity user) {

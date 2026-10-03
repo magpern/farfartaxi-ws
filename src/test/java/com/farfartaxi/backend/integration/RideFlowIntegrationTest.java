@@ -126,6 +126,9 @@ class RideFlowIntegrationTest {
             "password", password,
             "fullName", fullName
         ), 200);
+        // New accounts are pending; approve so the flow tests can use them.
+        String adminToken = login("admin@test.local", "Admin123!Test");
+        postWithAuth("/api/admin/users/" + getUserIdByEmail(adminToken, email) + "/approve", adminToken, null, 200);
     }
 
     private String login(String email, String password) throws Exception {

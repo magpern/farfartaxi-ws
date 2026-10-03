@@ -3,13 +3,13 @@
 # Authenticate to GHCR if images are private: docker login ghcr.io -u USERNAME
 #
 # Run from this directory:
-#   docker compose -f docker-compose.rpi.yml pull && docker compose -f docker-compose.rpi.yml up -d
+#   FARFARTAXI_TAG=<tag> docker compose -f docker-compose.rpi.yml pull && docker compose -f docker-compose.rpi.yml up -d
 
 services:
   backend:
     container_name: farfartaxi-backend
-    image: ghcr.io/${GHCR_OWNER}/farfartaxi-backend:latest
-    pull_policy: always
+    # Production pins tag + digest, e.g. FARFARTAXI_TAG=sha-abc1234@sha256:<digest>
+    image: ghcr.io/${GHCR_OWNER}/farfartaxi-backend:${FARFARTAXI_TAG:?required}
     restart: unless-stopped
     environment:
       # Enables application-rpi.properties (extra logging hints; security WARN lines are always on)
@@ -17,10 +17,10 @@ services:
       SERVER_PORT: 8080
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/farfartaxi
       SPRING_DATASOURCE_USERNAME: taxi_mgmt
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
-      APP_JWT_SECRET: ${APP_JWT_SECRET:-replace-this-in-production-with-a-long-secret-value}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?required}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?required}
       FARFARTAXI_ADMIN_EMAIL: ${FARFARTAXI_ADMIN_EMAIL:-admin@farfartaxi.local}
-      FARFARTAXI_ADMIN_PASSWORD: ${FARFARTAXI_ADMIN_PASSWORD:-ChangeMeNow123!}
+      FARFARTAXI_ADMIN_PASSWORD: ${FARFARTAXI_ADMIN_PASSWORD:?required}
       FARFARTAXI_ADMIN_NAME: ${FARFARTAXI_ADMIN_NAME:-Farfar Admin}
       APP_ETA_DEFAULT_KMH: ${APP_ETA_DEFAULT_KMH:-35}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
@@ -28,15 +28,16 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@farfartaxi.local}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
-      - "${BACKEND_HOST_PORT:-8080}:8080"
+      # Loopback only; the reverse proxy / frontend container reaches the backend on the Docker network.
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8081}:8080"
     depends_on:
       postgres:
         condition: service_healthy
 
   frontend:
     container_name: farfartaxi-frontend
-    image: ghcr.io/${GHCR_OWNER}/farfartaxi-frontend:latest
-    pull_policy: always
+    # Same tag/digest convention; override with FARFARTAXI_FRONTEND_TAG if the frontend is versioned separately
+    image: ghcr.io/${GHCR_OWNER}/farfartaxi-frontend:${FARFARTAXI_FRONTEND_TAG:-${FARFARTAXI_TAG:?required}}
     restart: unless-stopped
     depends_on:
       - backend
@@ -50,14 +51,12 @@ services:
     environment:
       POSTGRES_DB: farfartaxi
       POSTGRES_USER: taxi_mgmt
-      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-TXWpPS46swzxZBhD}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?required}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taxi_mgmt -d farfartaxi"]
       interval: 10s
       timeout: 5s
       retries: 10
-    ports:
-      - "${POSTGRESS_PORT:-5433}:5432"
     volumes:
       - farfartaxi_pg_data:/var/lib/postgresql/data
 

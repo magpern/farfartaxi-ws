@@ -7,6 +7,7 @@ import com.farfartaxi.backend.api.dto.RideDtos.RideResponse;
 import com.farfartaxi.backend.service.RideService;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/driver")
+@PreAuthorize("hasAnyRole('DRIVER','ADMIN')")
 public class DriverController {
     private final RideService rideService;
 

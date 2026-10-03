@@ -74,6 +74,14 @@ public class AdminService {
     }
 
     @Transactional
+    public UserEntity approve(Long userId) {
+        UserEntity user = userRepository.findById(userId)
+            .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+        user.setApproved(true);
+        return userRepository.save(user);
+    }
+
+    @Transactional
     public UserEntity setEnabled(Long userId, boolean enabled) {
         UserEntity actor = currentUserService.requireUser();
         UserEntity target = userRepository.findById(userId)

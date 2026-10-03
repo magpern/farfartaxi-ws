@@ -35,6 +35,13 @@ public class LoggingAccessDeniedHandler implements AccessDeniedHandler {
             auth != null ? auth.getAuthorities() : "[]",
             accessDeniedException.getMessage()
         );
+        if (auth != null && auth.getAuthorities().stream().anyMatch(a -> "ROLE_PENDING".equals(a.getAuthority()))) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.setCharacterEncoding("UTF-8");
+            response.getWriter().write("{\"error\":\"Account awaiting approval\",\"code\":\"PENDING_APPROVAL\"}");
+            return;
+        }
         delegate.handle(request, response, accessDeniedException);
     }
 }

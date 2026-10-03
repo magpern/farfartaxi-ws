@@ -41,7 +41,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**", "/actuator/health", "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/rides/share/**").permitAll()
-                .anyRequest().authenticated())
+                .anyRequest().hasAnyRole("USER", "DRIVER", "ADMIN"))
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(authenticationEntryPoint)
                 .accessDeniedHandler(accessDeniedHandler))

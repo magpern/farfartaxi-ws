@@ -57,6 +57,11 @@ public class AdminController {
         return toDto(adminService.setRole(userId, Role.DRIVER));
     }
 
+    @PostMapping("/users/{userId}/approve")
+    public Map<String, Object> approveUser(@PathVariable Long userId) {
+        return toDto(adminService.approve(userId));
+    }
+
     @PostMapping("/users/{userId}/enabled")
     public Map<String, Object> setUserEnabled(@PathVariable Long userId, @Valid @RequestBody SetUserEnabledRequest request) {
         return toDto(adminService.setEnabled(userId, request.enabled()));
@@ -93,6 +98,7 @@ public class AdminController {
             "mustChangePassword", effectiveMustChange,
             "hasLocalPassword", hasLocal,
             "enabled", user.isEnabled(),
+            "approved", user.isApproved(),
             "phone", user.getPhone() == null ? "" : user.getPhone(),
             "vehicleNote", user.getVehicleNote() == null ? "" : user.getVehicleNote()
         );

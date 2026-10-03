@@ -21,6 +21,6 @@ public class AppUserDetailsService implements UserDetailsService {
         String password = user.getPasswordHash() != null
             ? user.getPasswordHash()
             : "{noop}OAUTH_NO_LOCAL_PASSWORD";
-        return new SecurityUser(user.getId(), user.getEmail(), password, user.getRole(), user.isEnabled());
+        return new SecurityUser(user.getId(), user.getEmail(), password, user.getRole(), user.isEnabled(), user.isApproved());
     }
 }

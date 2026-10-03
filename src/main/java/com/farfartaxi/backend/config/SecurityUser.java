@@ -14,13 +14,19 @@ public class SecurityUser implements UserDetails {
     private final String password;
     private final Role role;
     private final boolean enabled;
+    private final boolean approved;
 
-    public SecurityUser(Long id, String email, String password, Role role, boolean enabled) {
+    public SecurityUser(Long id, String email, String password, Role role, boolean enabled, boolean approved) {
         this.id = id;
         this.email = email;
         this.password = password;
         this.role = role;
         this.enabled = enabled;
+        this.approved = approved;
+    }
+
+    public boolean isApproved() {
+        return approved;
     }
 
     public Long getId() {
@@ -29,7 +35,8 @@ public class SecurityUser implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
+        // Accounts awaiting admin approval get no real role; SecurityConfig only lets them reach /api/auth/**.
+        return List.of(new SimpleGrantedAuthority(approved ? "ROLE_" + role.name() : "ROLE_PENDING"));
     }
 
     @Override
