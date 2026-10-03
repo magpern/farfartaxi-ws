@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthService.class);
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -94,6 +95,13 @@ public class AuthService {
             }
             if (!byEmail.isEnabled()) {
                 throw new AppException(HttpStatus.FORBIDDEN, "Account disabled");
+            }
+            if (!byEmail.isApproved() && byEmail.getPasswordHash() != null) {
+                // Pre-hijack defence: a pending account with a local password may have been registered by someone
+                // other than the verified email owner. Only the verified Google identity may sign in from now on.
+                byEmail.setPasswordHash(null);
+                byEmail.setMustChangePassword(false);
+                log.info("Cleared local password of pending user id={} on Google link", byEmail.getId());
             }
             byEmail.setGoogleSub(gp.sub());
             refreshGoogleProfile(byEmail, gp);

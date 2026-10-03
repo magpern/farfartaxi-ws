@@ -36,8 +36,8 @@ services:
 
   frontend:
     container_name: farfartaxi-frontend
-    # Same tag/digest convention; override with FARFARTAXI_FRONTEND_TAG if the frontend is versioned separately
-    image: ghcr.io/${GHCR_OWNER}/farfartaxi-frontend:${FARFARTAXI_FRONTEND_TAG:-${FARFARTAXI_TAG:?required}}
+    # Required: the frontend is versioned separately. Production pins tag@sha256:digest per image.
+    image: ghcr.io/${GHCR_OWNER}/farfartaxi-frontend:${FARFARTAXI_FRONTEND_TAG:?required}
     restart: unless-stopped
     depends_on:
       - backend
@@ -46,6 +46,7 @@ services:
 
   postgres:
     container_name: farfartaxi-postgres
+    # Production pins this by digest (postgres:17@sha256:<digest>); the digest is environment-specific.
     image: postgres:17
     restart: unless-stopped
     environment:

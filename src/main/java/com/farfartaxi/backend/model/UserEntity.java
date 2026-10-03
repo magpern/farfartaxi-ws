@@ -50,7 +50,7 @@ public class UserEntity {
     private boolean enabled = true;
 
     @Column(nullable = false)
-    private boolean approved = true;
+    private boolean approved = false;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -72,6 +72,10 @@ public class UserEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
     }
 
     public String getEmail() {

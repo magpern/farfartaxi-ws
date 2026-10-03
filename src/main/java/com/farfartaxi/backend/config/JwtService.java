@@ -14,6 +14,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class JwtService {
     static final String PUBLIC_DEFAULT_SECRET = "replace-this-in-production-with-a-long-secret-value";
+    private static final java.util.Set<String> REJECTED_SECRETS = java.util.Set.of(
+        PUBLIC_DEFAULT_SECRET,
+        "change-this-jwt-secret-to-a-long-random-value"
+    );
     private static final int MIN_SECRET_LENGTH = 32;
 
     private final SecretKey key;
@@ -29,8 +33,9 @@ public class JwtService {
         if (secret.length() < MIN_SECRET_LENGTH) {
             throw new IllegalStateException("app.jwt.secret (APP_JWT_SECRET) must be at least " + MIN_SECRET_LENGTH + " characters");
         }
-        if (PUBLIC_DEFAULT_SECRET.equals(secret)) {
-            throw new IllegalStateException("app.jwt.secret (APP_JWT_SECRET) must not be the public default value");
+        String normalized = secret.trim().toLowerCase(java.util.Locale.ROOT);
+        if (REJECTED_SECRETS.contains(normalized) || normalized.startsWith("change_me")) {
+            throw new IllegalStateException("app.jwt.secret (APP_JWT_SECRET) must not be the public default value or a placeholder");
         }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMinutes = expirationMinutes;

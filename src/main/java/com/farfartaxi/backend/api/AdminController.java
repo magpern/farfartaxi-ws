@@ -90,17 +90,18 @@ public class AdminController {
     private Map<String, Object> toDto(UserEntity user) {
         boolean hasLocal = user.getPasswordHash() != null;
         boolean effectiveMustChange = hasLocal && user.isMustChangePassword();
-        return Map.of(
-            "id", user.getId(),
-            "email", user.getEmail(),
-            "fullName", user.getFullName(),
-            "role", user.getRole().name(),
-            "mustChangePassword", effectiveMustChange,
-            "hasLocalPassword", hasLocal,
-            "enabled", user.isEnabled(),
-            "approved", user.isApproved(),
-            "phone", user.getPhone() == null ? "" : user.getPhone(),
-            "vehicleNote", user.getVehicleNote() == null ? "" : user.getVehicleNote()
+        return Map.ofEntries(
+            Map.entry("id", user.getId()),
+            Map.entry("email", user.getEmail()),
+            Map.entry("fullName", user.getFullName()),
+            Map.entry("role", user.getRole().name()),
+            Map.entry("mustChangePassword", effectiveMustChange),
+            Map.entry("hasLocalPassword", hasLocal),
+            Map.entry("enabled", user.isEnabled()),
+            Map.entry("approved", user.isApproved()),
+            Map.entry("createdAt", user.getCreatedAt() == null ? "" : user.getCreatedAt().toString()),
+            Map.entry("phone", user.getPhone() == null ? "" : user.getPhone()),
+            Map.entry("vehicleNote", user.getVehicleNote() == null ? "" : user.getVehicleNote())
         );
     }
 }

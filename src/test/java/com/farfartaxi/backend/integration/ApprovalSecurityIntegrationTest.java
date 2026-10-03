@@ -24,7 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     "spring.datasource.password=",
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.flyway.enabled=false",
-    "app.jwt.secret=integration-test-secret-key-012345678901234567890123",
+    "app.jwt.secret=test-only-integration-secret-key-012345678901234567890123",
     "app.admin.email=admin@test.local",
     "app.admin.password=Admin123!Test",
     "app.admin.name=Admin Test"
@@ -96,6 +96,57 @@ class ApprovalSecurityIntegrationTest {
         JsonNode res = send("POST", "/api/auth/google", null, Map.of("credential", "cred"), 200);
         assertThat(res.get("user").get("approved").asBoolean()).isFalse();
         assertPending(send("GET", "/api/rides/my", res.get("token").asText(), null, 403));
+    }
+
+    @Test
+    void bookingForPendingPassengerIsRejectedAndPendingUsersNotListed() throws Exception {
+        String adminToken = loginToken("admin@test.local", "Admin123!Test");
+        send("POST", "/api/auth/register", null, Map.of(
+            "email", "pax-pending@test.local", "password", "Password123!", "fullName", "Pax Pending"), 200);
+        long pendingId = userId(adminToken, "pax-pending@test.local");
+
+        String driverToken = approvedUserToken(adminToken, "drv@test.local");
+        send("POST", "/api/admin/users/" + userId(adminToken, "drv@test.local") + "/promote-driver", adminToken, null, 200);
+
+        Map<String, Object> body = new java.util.HashMap<>(RIDE);
+        body.put("passengerUserId", pendingId);
+        send("POST", "/api/rides", adminToken, body, 400);
+        send("POST", "/api/rides", driverToken, body, 400);
+
+        for (String token : new String[] {adminToken, driverToken}) {
+            for (JsonNode u : send("GET", "/api/users/for-booking", token, null, 200)) {
+                assertThat(u.get("email").asText()).isNotEqualToIgnoringCase("pax-pending@test.local");
+            }
+        }
+    }
+
+    @Test
+    void googleSignInOnPendingLocalAccountStaysPendingAndClearsPassword() throws Exception {
+        send("POST", "/api/auth/register", null, Map.of(
+            "email", "hijack@test.local", "password", "Password123!", "fullName", "Attacker"), 200);
+        when(googleIdTokenService.isConfigured()).thenReturn(true);
+        when(googleIdTokenService.verify("cred-h")).thenReturn(Optional.of(
+            new GoogleIdTokenService.GoogleProfile("sub-hijack", "hijack@test.local", "Real Person", true)));
+        JsonNode res = send("POST", "/api/auth/google", null, Map.of("credential", "cred-h"), 200);
+        assertThat(res.get("user").get("approved").asBoolean()).isFalse();
+        assertThat(res.get("user").get("hasLocalPassword").asBoolean()).isFalse();
+        assertPending(send("GET", "/api/rides/my", res.get("token").asText(), null, 403));
+
+        send("POST", "/api/auth/login", null, Map.of("email", "hijack@test.local", "password", "Password123!"), 401);
+
+        String adminToken = loginToken("admin@test.local", "Admin123!Test");
+        send("POST", "/api/admin/users/" + userId(adminToken, "hijack@test.local") + "/approve", adminToken, null, 200);
+        send("POST", "/api/auth/login", null, Map.of("email", "hijack@test.local", "password", "Password123!"), 401);
+        send("GET", "/api/rides/my", res.get("token").asText(), null, 200);
+    }
+
+    @Test
+    void adminCanRejectPendingUserWhoThenCannotLogIn() throws Exception {
+        send("POST", "/api/auth/register", null, Map.of(
+            "email", "reject-me@test.local", "password", "Password123!", "fullName", "Reject Me"), 200);
+        String adminToken = loginToken("admin@test.local", "Admin123!Test");
+        send("DELETE", "/api/admin/users/" + userId(adminToken, "reject-me@test.local"), adminToken, null, 200);
+        send("POST", "/api/auth/login", null, Map.of("email", "reject-me@test.local", "password", "Password123!"), 401);
     }
 
     private String approvedUserToken(String adminToken, String email) throws Exception {
