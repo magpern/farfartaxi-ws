@@ -39,7 +39,7 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/actuator/health", "/api/public/**").permitAll()
+                .requestMatchers("/api/auth/**", "/actuator/health/**", "/actuator/info", "/actuator/prometheus", "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/rides/share/**").permitAll()
                 .anyRequest().hasAnyRole("USER", "DRIVER", "ADMIN"))
             .exceptionHandling(ex -> ex
