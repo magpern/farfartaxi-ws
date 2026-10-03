@@ -18,6 +18,9 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     List<UserEntity> findByRole(Role role);
 
+    /** Drivers (DRIVER or ADMIN) of one world who can receive offers. */
+    List<UserEntity> findByRoleInAndEnabledTrueAndApprovedTrueAndTest(java.util.Collection<Role> roles, boolean test);
+
     long countByRole(Role role);
 
     long countByRoleAndEnabled(Role role, boolean enabled);

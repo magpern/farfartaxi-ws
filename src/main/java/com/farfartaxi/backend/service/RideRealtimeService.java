@@ -20,11 +20,9 @@ public class RideRealtimeService {
         return emitter;
     }
 
-    public void publish(Long rideId, Long passengerId, Long driverId, RideResponse payload) {
-        push(rideId, passengerId, payload);
-        if (driverId != null) {
-            push(rideId, driverId, payload);
-        }
+    /** Sends one viewer's own view of the ride (phones/actions differ per viewer). */
+    public void publishTo(Long rideId, Long userId, RideResponse payload) {
+        push(rideId, userId, payload);
     }
 
     private void push(Long rideId, Long userId, RideResponse payload) {

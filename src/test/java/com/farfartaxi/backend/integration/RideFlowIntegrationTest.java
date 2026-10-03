@@ -62,7 +62,10 @@ class RideFlowIntegrationTest {
         assertThat(accept.get("status").asText()).isEqualTo("ACCEPTED");
 
         JsonNode start = postWithAuth("/api/driver/rides/" + rideId + "/start", driverToken, null, 200);
-        assertThat(start.get("status").asText()).isEqualTo("IN_PROGRESS");
+        assertThat(start.get("status").asText()).isEqualTo("EN_ROUTE");
+
+        assertThat(postWithAuth("/api/driver/rides/" + rideId + "/arrive", driverToken, null, 200).get("status").asText()).isEqualTo("ARRIVED");
+        assertThat(postWithAuth("/api/driver/rides/" + rideId + "/pickup", driverToken, null, 200).get("status").asText()).isEqualTo("PICKED_UP");
 
         JsonNode locationNode = postWithAuth("/api/driver/rides/" + rideId + "/location", driverToken, Map.of("lat", 59.33, "lon", 18.07), 200);
         assertThat(locationNode.get("etaMinutes").asInt()).isGreaterThan(0);
@@ -74,7 +77,7 @@ class RideFlowIntegrationTest {
     }
 
     @Test
-    void passengerCanDeleteCancelledOrRejectedRides() throws Exception {
+    void passengerCanDeleteCancelledRides() throws Exception {
         register("passenger-del@test.local", "Password123!", "Passenger Del");
         register("driver-del@test.local", "Password123!", "Driver Del");
 
@@ -96,8 +99,11 @@ class RideFlowIntegrationTest {
         ), 200);
         long rejectedRideId = rejectedBooked.get("id").asLong();
 
+        // other drivers still hold an open offer, so one decline leaves the ride REQUESTED (NO_DRIVER is covered in the M1 tests)
         JsonNode refused = postWithAuth("/api/driver/rides/" + rejectedRideId + "/refuse", driverToken, Map.of("comment", "busy"), 200);
-        assertThat(refused.get("status").asText()).isEqualTo("REJECTED");
+        assertThat(refused.get("myOfferStatus").asText()).isEqualTo("DECLINED");
+        deleteWithAuth("/api/rides/" + rejectedRideId, userToken, 400);
+        postWithAuth("/api/rides/" + rejectedRideId + "/cancel", userToken, null, 200);
 
         deleteWithAuth("/api/rides/" + rejectedRideId, userToken, 200);
         assertThat(listMyRideIds(userToken, false)).doesNotContain(rejectedRideId);

@@ -47,6 +47,38 @@ public class OsrmRouteProxyService {
                         .build();
     }
 
+    private final HttpClient quickClient =
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).followRedirects(HttpClient.Redirect.NORMAL).build();
+
+    /**
+     * Best-effort route for latency-sensitive callers: bypasses the global throttle (no waiting behind other calls)
+     * and gives up after {@code timeout}.
+     * @return raw OSRM JSON body, or null on error / timeout / invalid coordinates
+     */
+    public String drivingRoute(double fromLat, double fromLon, double toLat, double toLon, Duration timeout) {
+        if (!finiteLatLon(fromLat, fromLon) || !finiteLatLon(toLat, toLon)) {
+            return null;
+        }
+        String path = String.format(Locale.US,
+            "/route/v1/driving/%f,%f;%f,%f?overview=false&alternatives=false&steps=false", fromLon, fromLat, toLon, toLat);
+        long t0 = System.nanoTime();
+        String result = null;
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout)
+                .header("Accept", "application/json").header("User-Agent", "FarfartaxiBackend/1.0").GET().build();
+            HttpResponse<byte[]> response = quickClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 200 && response.statusCode() < 300 && response.body() != null && response.body().length > 0) {
+                result = new String(response.body(), StandardCharsets.UTF_8);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("OSRM quick request failed: {}", e.toString());
+        }
+        metrics.route(result == null ? "error" : "ok", System.nanoTime() - t0);
+        return result;
+    }
+
     /**
      * @return raw OSRM JSON body, or null on error / invalid coordinates
      */

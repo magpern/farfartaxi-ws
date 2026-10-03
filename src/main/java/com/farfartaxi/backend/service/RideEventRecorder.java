@@ -11,9 +11,14 @@ import org.springframework.stereotype.Service;
 public class RideEventRecorder {
     public static final String BOOKED = "BOOKED";
     public static final String ACCEPTED = "ACCEPTED";
-    public static final String REFUSED = "REFUSED";
-    public static final String UNACCEPTED = "UNACCEPTED";
+    public static final String DECLINED = "DECLINED";
+    public static final String RETURNED = "RETURNED";
     public static final String STARTED = "STARTED";
+    public static final String ARRIVED = "ARRIVED";
+    public static final String PICKED_UP = "PICKED_UP";
+    public static final String EDITED = "EDITED";
+    public static final String NO_DRIVER = "NO_DRIVER";
+    public static final String KEPT_WAITING = "KEPT_WAITING";
     public static final String COMPLETED = "COMPLETED";
     public static final String CANCELLED = "CANCELLED";
     public static final String FEEDBACK = "FEEDBACK";
