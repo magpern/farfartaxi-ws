@@ -21,7 +21,7 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V5 | M0C | refresh_tokens (deployed) |
 | V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version (deployed) |
 | V7 | M3 | place_selections (learned ranking) (deployed) |
-| V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon |
+| V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon, one-HOME partial unique index (deployed) |
 
 ## Milestones
 | Milestone | Status |
@@ -33,8 +33,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M1 Core ride model | **done** (v1.6.0, deployed 2026-10-03 ~19:15) |
 | M2 Mobile UX shell | **done** (v1.7.0, deployed 2026-10-03 ~20:40) |
 | M3 Search and places | **done** (v1.8.0, deployed 2026-10-03 ~22:30) |
-| M4 Places + one-tap trips | in progress |
-| M5 Driver workflow | pending |
+| M4 Places + one-tap trips | **done** (v1.9.0, deployed 2026-10-04 ~00:15) |
+| M5 Driver workflow | in progress |
 | M6 Notifications | pending |
 | M7 Live tracking | pending |
 | M8 Observability + ops | pending |
@@ -90,6 +90,12 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Review (Opus): CLEAN; non-blocking fixes applied (512-char provider ids, reverse upstream failure -> 204, language-independent GPS pickup flag + payload guard, gid ids, sites load retry, GPS accuracy gate, stop labels, map-tap fallback label, maxLength, busy state, dedupe permutations, selection upsert race, test selection cleanup, text_pattern_ops index).
 - Gates: 137 backend tests, 172 frontend tests, local e2e 26/26 + smoke x2; CI green; production: smoke PASS (incl. live SL search, old geocode 404), Playwright 24/26 in full run on the Pi (2 pixel-7 timeouts under Pi load) and the two specs 8/8 when rerun -> prod gate now uses --retries=1; live search quality from Järfälla GPS: "McDonalds" -> McDonalds — Järfälla (hållplats) 5.15 km, "Sveav" -> nearest Sveavägen first, "Kista Galleria" -> POI, "Jakobsbergs centrum" 0.11 km, "S:t Eriksplan" ok, "donken" -> McDonalds; nearest stop Jakobsbergs centrum 114 m; latency 69 searches: endpoint avg 34 ms, max 166 ms (p95 < 300 ms; before: avg 1181 ms, max 4376 ms); real rides unchanged; 0 ERROR lines.
 - Release `v1.8.0` backend `sha256:7a9f4a9d...`, frontend `sha256:79989427...`; Flyway V7.
+
+## M4 evidence
+- Work packages: backend saved places/recents (Sonnet), frontend Åk hem/places/Boka igen (Sonnet), e2e M4 gate (Sonnet; found + fixed a narrow-phone overflow bug in the Places page).
+- Review (Opus): NOT CLEAN (B1 label limit mismatch 40 vs prefilled full address; B2 slow GPS after early Åk hem tap broke the 3-tap gate) -> fixed with non-blocking items (loading state for home button, one-HOME partial unique index + 409, 404 for non-owners, on-behalf checks on PATCH/DELETE and recents, stale-response guard, on-behalf places in driver booking, save-place only after completion, router state cleanup).
+- Gates: 148 backend tests, 188 frontend tests (incl. 3-tap Åk hem with immediate and delayed GPS), local e2e 38/38 + smoke x2, CI green; production: smoke PASS (incl. saved place CRUD + recents), Playwright 38/38 on production incl. "Åk hem books in exactly 3 taps from a cold start", real rides unchanged, 0 ERROR lines.
+- PRs ws #8, web #7; release `v1.9.0` backend `sha256:7796f455...`, frontend `sha256:c36879a7...`; Flyway V8.
 
 ## Deviations
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
