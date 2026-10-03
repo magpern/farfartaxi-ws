@@ -159,6 +159,32 @@ req POST "/api/driver/rides/$RID/arrive" "$DTOKEN"; expect "arrive" 200
 [ "$(jget 'd["status"]')" = "ARRIVED" ] || fail "arrive did not return ARRIVED"
 req POST "/api/driver/rides/$RID/location" "$DTOKEN" '{"lat":59.335,"lon":18.08}'
 case "$CODE" in 200|204) ;; *) fail "location: expected 200/204, got $CODE";; esac
+# M7: live tracking + share link (ride is ARRIVED = active). Accuracy is accepted and echoed.
+req POST "/api/driver/rides/$RID/location" "$DTOKEN" '{"lat":59.336,"lon":18.081,"accuracy":15}'
+case "$CODE" in 200|204) ;; *) fail "location with accuracy: expected 200/204, got $CODE";; esac
+req GET "/api/rides/$RID" "$PTOKEN"; expect "passenger ride after location" 200
+[ -n "$(jget 'd.get("lastLocationAt") or ""')" ] || fail "ride has no lastLocationAt after a location post"
+[ "$(jget 'd.get("locationStale")')" = "False" ] || fail "fresh position flagged locationStale"
+ok "live position stored (not stale)"
+req POST "/api/rides/$RID/share" "$PTOKEN"; expect "create share" 200
+STOKEN=$(printf '%s' "$BODY_OUT" | python3 -c 'import sys,json,re; u=json.load(sys.stdin)["url"]; m=re.search(r"/dela/([A-Za-z0-9_-]+)$", u); print(m.group(1) if m else "")')
+[ -n "$STOKEN" ] || fail "share response has no /dela/<token> url"
+req GET "/api/public/share/$STOKEN" ; expect "public share (no auth)" 200
+printf '%s' "$BODY_OUT" | python3 -c '
+import sys,json,re
+raw=sys.stdin.read(); d=json.loads(raw)
+bad=[k for k in re.findall(r"\"([^\"]*)\"\s*:", raw) if re.search(r"phone|email|note|id$", k, re.I)]
+if bad or "+46" in raw: print("leaky share fields: %s" % bad, file=sys.stderr); sys.exit(1)
+if not (d.get("passengerFirstName") and d.get("pickup") and d.get("destination")): sys.exit(1)' \
+  || fail "public share payload leaks private fields or lacks required fields"
+ok "public share 200 without auth, no phone/email/note/id fields"
+req DELETE "/api/rides/$RID/share" "$PTOKEN"
+case "$CODE" in 200|204) ;; *) fail "revoke share: expected 200/204, got $CODE";; esac
+req GET "/api/public/share/$STOKEN" ; expect "public share after revoke" 410
+ok "revoked share link returns 410"
+req GET "/api/public/share/not-a-real-token-0000000000000000" ; expect "unknown share token" 404
+ok "unknown share token returns 404"
+
 req POST "/api/driver/rides/$RID/pickup" "$DTOKEN"; expect "pickup" 200
 [ "$(jget 'd["status"]')" = "PICKED_UP" ] || fail "pickup did not return PICKED_UP"
 req POST "/api/driver/rides/$RID/complete" "$DTOKEN"; expect "complete" 200
