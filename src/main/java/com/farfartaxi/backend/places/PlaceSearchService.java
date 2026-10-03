@@ -32,6 +32,7 @@ public class PlaceSearchService {
     static final int MAX_PER_PERSONAL_GROUP = 3;
     static final double GPS_MAX_ACCURACY_M = 1000;
     static final double DEDUPE_METERS = 50;
+    static final double PERMUTATION_DEDUPE_METERS = 15;
 
     private final PlaceProvider provider;
     private final SavedPlaceRepository savedPlaces;
@@ -166,7 +167,7 @@ public class PlaceSearchService {
     }
 
     Context context(List<SavedPlaceEntity> saved, Double lat, Double lon, Double accuracy, Double pickupLat, Double pickupLon) {
-        if (validPoint(lat, lon) && (accuracy == null || accuracy < GPS_MAX_ACCURACY_M)) {
+        if (validPoint(lat, lon) && accuracy != null && Double.isFinite(accuracy) && accuracy < GPS_MAX_ACCURACY_M) {
             return new Context("GPS", lat, lon);
         }
         if (validPoint(pickupLat, pickupLon)) {
@@ -210,12 +211,32 @@ public class PlaceSearchService {
 
     private static void addIfNew(List<PlaceResult> list, PlaceResult r) {
         String n = PlaceNormalizer.normalize(r.name());
+        List<String> sortedTokens = sortedTokens(n);
         for (PlaceResult e : list) {
-            if (PlaceNormalizer.normalize(e.name()).equals(n)
-                && Geo.haversineMeters(e.lat(), e.lon(), r.lat(), r.lon()) <= DEDUPE_METERS) {
+            if (isDuplicate(e, r, n, sortedTokens)) {
                 return;
             }
         }
         list.add(r);
+    }
+
+    private static boolean isDuplicate(PlaceResult e, PlaceResult r, String normalizedName, List<String> sortedTokens) {
+        if (e.providerPlaceId() != null && e.providerPlaceId().equals(r.providerPlaceId())
+            && java.util.Objects.equals(e.provider(), r.provider())) {
+            return true;
+        }
+        double d = Geo.haversineMeters(e.lat(), e.lon(), r.lat(), r.lon());
+        String en = PlaceNormalizer.normalize(e.name());
+        if (d <= DEDUPE_METERS && en.equals(normalizedName)) {
+            return true;
+        }
+        // "Kungsgatan / Sveavägen" vs "Sveavägen / Kungsgatan": same tokens, very close
+        return d <= PERMUTATION_DEDUPE_METERS && !sortedTokens.isEmpty() && sortedTokens(en).equals(sortedTokens);
+    }
+
+    private static List<String> sortedTokens(String normalized) {
+        List<String> t = new ArrayList<>(PlaceNormalizer.tokens(normalized));
+        java.util.Collections.sort(t);
+        return t;
     }
 }

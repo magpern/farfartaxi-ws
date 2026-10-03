@@ -4,7 +4,7 @@ CREATE TABLE place_selections (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     normalized_query VARCHAR(100) NOT NULL,
     provider VARCHAR(16) NOT NULL,
-    provider_place_id VARCHAR(128) NOT NULL,
+    provider_place_id VARCHAR(512) NOT NULL,
     name VARCHAR(256) NOT NULL,
     lat DOUBLE PRECISION NOT NULL,
     lon DOUBLE PRECISION NOT NULL,
@@ -12,4 +12,5 @@ CREATE TABLE place_selections (
     last_selected_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT uq_place_selections UNIQUE (user_id, normalized_query, provider, provider_place_id)
 );
-CREATE INDEX idx_place_selections_query ON place_selections(normalized_query);
+-- text_pattern_ops makes LIKE 'prefix%' lookups indexable regardless of the database collation (PostgreSQL).
+CREATE INDEX idx_place_selections_query ON place_selections(normalized_query text_pattern_ops);

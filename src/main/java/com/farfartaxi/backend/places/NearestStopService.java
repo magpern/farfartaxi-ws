@@ -55,6 +55,15 @@ public class NearestStopService {
         }
     }
 
+    /** Until the first successful load, retry every 15 minutes (non-blocking: the scheduler thread does the work). */
+    @Scheduled(fixedDelayString = "${app.places.sites.retry-interval-ms:900000}",
+        initialDelayString = "${app.places.sites.retry-interval-ms:900000}")
+    public void retryUntilLoaded() {
+        if (loadEnabled && sites == null) {
+            reload();
+        }
+    }
+
     @Scheduled(cron = "0 10 4 * * *", zone = "Europe/Stockholm")
     void nightlyReload() {
         if (loadEnabled) {
@@ -79,11 +88,15 @@ public class NearestStopService {
             }
             List<Site> list = new ArrayList<>(root.size());
             for (JsonNode n : root) {
-                if (n.hasNonNull("lat") && n.hasNonNull("lon") && n.hasNonNull("name") && n.hasNonNull("id")) {
+                if (n.hasNonNull("lat") && n.hasNonNull("lon") && n.hasNonNull("name") && n.hasNonNull("gid")) {
                     String note = n.hasNonNull("note") ? n.get("note").asText().trim() : "";
-                    list.add(new Site(n.get("id").asText(), n.get("name").asText().trim(),
+                    list.add(new Site(n.get("gid").asText(), n.get("name").asText().trim(),
                         note.isEmpty() ? null : note, n.get("lat").asDouble(), n.get("lon").asDouble()));
                 }
+            }
+            if (list.isEmpty()) {
+                log.warn("SL sites: empty list, keeping previous");
+                return false;
             }
             this.sites = List.copyOf(list);
             log.info("Loaded {} SL sites", list.size());

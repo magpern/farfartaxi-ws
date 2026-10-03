@@ -26,7 +26,7 @@ public final class PlaceDtos {
     public record PlaceSelectionRequest(
         @NotBlank @Size(max = 200) String query,
         @NotBlank @Size(max = 16) String provider,
-        @Size(max = 128) String providerPlaceId,
+        @Size(max = 512) String providerPlaceId,
         @Size(max = 256) String name,
         Double lat,
         Double lon) {

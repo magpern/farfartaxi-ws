@@ -125,6 +125,7 @@ class PlacesIntegrationTest {
             respond(ex, SL_STATUS.getOrDefault(name, 200), SL_BODIES.getOrDefault(name, "{\"locations\":[]}"));
         });
         TRANSPORT.createContext("/v1/sites", ex -> respond(ex, 200, SITES.get()));
+        NOMINATIM.createContext("/failing/reverse", ex -> respond(ex, 500, "{}"));
         NOMINATIM.createContext("/reverse", ex -> {
             REVERSE_CALLS.incrementAndGet();
             respond(ex, 200, """
@@ -187,6 +188,7 @@ class PlacesIntegrationTest {
     @Autowired PlaceSelectionRepository selectionRepo;
     @Autowired PlaceSelectionService selectionService;
     @Autowired AppMetrics metrics;
+    @Autowired com.farfartaxi.backend.service.TestRideCleanupJob cleanupJob;
     @Autowired NearestStopService nearestStops;
     @Autowired com.farfartaxi.backend.places.SlPlaceProvider slProvider;
     @MockitoBean OsrmRouteProxyService osrm;
@@ -480,15 +482,15 @@ class PlacesIntegrationTest {
     @Test
     void nearestStopFromStubbedSites() throws Exception {
         SITES.set("""
-            [{"id":9530,"name":"Kallhälls station","note":"Järfälla","lat":59.4510,"lon":17.8030,"abbreviation":"KHÄ"},
-             {"id":1001,"name":"Slussen","lat":59.3200,"lon":18.0720},
-             {"id":9531,"name":"Kallhäll norra","lat":59.4600,"lon":17.8100}]""");
+            [{"id":9530,"gid":1080009530,"name":"Kallhälls station","note":"Järfälla","lat":59.4510,"lon":17.8030,"abbreviation":"KHÄ"},
+             {"id":1001,"gid":1080001001,"name":"Slussen","lat":59.3200,"lon":18.0720},
+             {"id":9531,"gid":1080009531,"name":"Kallhäll norra","lat":59.4600,"lon":17.8100}]""");
         assertThat(nearestStops.reload()).isTrue();
         String u = user();
         Resp r = call("GET", "/api/places/nearest-stop?lat=59.4520&lon=17.8030", u, null, 200);
         assertThat(r.body().get("name").asText()).isEqualTo("Kallhälls station");
         assertThat(r.body().get("area").asText()).isEqualTo("Järfälla");
-        assertThat(r.body().get("providerPlaceId").asText()).isEqualTo("9530");
+        assertThat(r.body().get("providerPlaceId").asText()).isEqualTo("1080009530");
         assertThat(r.body().get("distanceM").asInt()).isBetween(100, 130);
         assertThat(r.body().get("lat").asDouble()).isEqualTo(59.4510);
         assertThat(r.body().has("lon")).isTrue();
@@ -518,6 +520,110 @@ class PlacesIntegrationTest {
         assertThat(second.status()).isEqualTo(429);
         assertThat((System.nanoTime() - t0) / 1_000_000).isLessThan(1000);
         assertThat(REVERSE_CALLS.get()).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- M3 review fixes
+    @Test
+    void longSlIdsAreStoredAndLearned() throws Exception {
+        String id = "streetID:" + "x".repeat(149) + "@" + "9";
+        assertThat(id.length()).isEqualTo(160);
+        String u = user();
+        call("POST", "/api/places/selections", u, selection("longid", "SL", id, "Lång", KISTA), 204);
+        assertThat(selectionRepo.findAll().stream().anyMatch(e -> id.equals(e.getProviderPlaceId()))).isTrue();
+        call("POST", "/api/places/selections", u, Map.of("query", "longid", "provider", "SL", "providerPlaceId", "y".repeat(513),
+            "name", "n", "lat", 59.0, "lon", 18.0), 400);
+    }
+
+    @Test
+    void reverseUpstreamFailureIsEmptyNotBadGateway() {
+        var failing = new com.farfartaxi.backend.service.NominatimProxyService(
+            "http://127.0.0.1:" + NOMINATIM.getAddress().getPort() + "/failing", 0);
+        var svc = new com.farfartaxi.backend.places.ReverseGeocodeService(failing, metrics);
+        assertThat(svc.reverse(59.34, 18.06)).isEmpty();
+        var down = new com.farfartaxi.backend.service.NominatimProxyService("http://127.0.0.1:9", 0);
+        assertThat(new com.farfartaxi.backend.places.ReverseGeocodeService(down, metrics).reverse(59.34, 18.06)).isEmpty();
+    }
+
+    @Test
+    void nearestStopRetriesInitialLoadUntilFirstSuccess() throws Exception {
+        String before = SITES.get();
+        try {
+            var svc = new NearestStopService("http://127.0.0.1:" + TRANSPORT.getAddress().getPort(), true, metrics);
+            SITES.set("not json");
+            svc.retryUntilLoaded();
+            assertThat(svc.nearest(59.4520, 17.8030)).isEmpty();
+            SITES.set("[]"); // empty counts as failed too
+            svc.retryUntilLoaded();
+            assertThat(svc.nearest(59.4520, 17.8030)).isEmpty();
+            SITES.set("[{\"id\":1,\"gid\":777,\"name\":\"Gid stop\",\"lat\":59.4510,\"lon\":17.8030}]");
+            svc.retryUntilLoaded();
+            var hit = svc.nearest(59.4520, 17.8030).orElseThrow();
+            assertThat(hit.providerPlaceId()).isEqualTo("777");
+            assertThat(hit.area()).isNull();
+            // loaded: the retry job no longer reloads
+            SITES.set("[{\"id\":2,\"gid\":888,\"name\":\"Other\",\"lat\":59.4510,\"lon\":17.8030}]");
+            svc.retryUntilLoaded();
+            assertThat(svc.nearest(59.4520, 17.8030).orElseThrow().providerPlaceId()).isEqualTo("777");
+        } finally {
+            SITES.set(before);
+        }
+    }
+
+    @Test
+    void missingAccuracyIsNotGps() throws Exception {
+        stub("noacc", loc("jarf", "stop", "Järfälla", "Noacc", JARFALLA, 1000, null));
+        String u = user();
+        assertThat(search(u, "q=noacc&lat=57.7089&lon=11.9746").body().get("context").asText()).isEqualTo("DEFAULT");
+        assertThat(search(u, "q=noacc&lat=57.7089&lon=11.9746&pickupLat=59.36&pickupLon=18.0").body().get("context").asText())
+            .isEqualTo("PICKUP");
+        assertThat(search(u, "q=noacc&lat=57.7089&lon=11.9746&accuracy=50").body().get("context").asText()).isEqualTo("GPS");
+    }
+
+    @Test
+    void dedupeByIdAndTokenPermutation() throws Exception {
+        stub("dedq",
+            // same id, different names far apart
+            loc("same", "stop", "Järfälla", "Dedq Ett", JARFALLA, 1000, null),
+            loc("same", "stop", "Kista", "Dedq Tva", KISTA, 1000, null),
+            // permutation within 15 m
+            loc("p1", "street", "Stockholm", "Dedq / Sveavägen", SOLNA, 1000, null),
+            loc("p2", "street", "Stockholm", "Sveavägen / Dedq", new double[] {59.36005, 18.0}, 1000, null),
+            // permutation 200 m away is kept; same tokens but different name is not an exact-name dup
+            loc("p3", "street", "Stockholm", "Sveavägen / Dedq", new double[] {59.3618, 18.0}, 1000, null));
+        List<String> ids = ids(search(user(), "q=dedq&limit=25").body());
+        assertThat(ids).hasSize(3).contains("same", "p3");
+        assertThat(ids.contains("p1") ^ ids.contains("p2")).isTrue();
+    }
+
+    @Test
+    void concurrentIdenticalSelectionsUpsertWithoutError() throws Exception {
+        String u = user();
+        var pool = Executors.newFixedThreadPool(6);
+        try {
+            List<java.util.concurrent.Future<Resp>> fs = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                fs.add(pool.submit(() -> call("POST", "/api/places/selections", u, selection("racey", "SL", "race-1", "Race", KISTA), null)));
+            }
+            for (var f : fs) {
+                assertThat(f.get().status()).isEqualTo(204);
+            }
+        } finally {
+            pool.shutdown();
+        }
+        var rows = selectionRepo.findAll().stream().filter(e -> "race-1".equals(e.getProviderPlaceId())).toList();
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getScore()).isGreaterThan(5.9);
+    }
+
+    @Test
+    void nightlyCleanupAlsoRemovesTestUserSelections() throws Exception {
+        String real = user();
+        String test = login("test-passenger@farfartaxi.invalid", "TestPass123!");
+        call("POST", "/api/places/selections", real, selection("cleanq", "SL", "clean-real", "R", KISTA), 204);
+        call("POST", "/api/places/selections", test, selection("cleanq", "SL", "clean-test", "T", KISTA), 204);
+        cleanupJob.cleanup();
+        var left = selectionRepo.findAll().stream().map(PlaceSelectionEntity::getProviderPlaceId).toList();
+        assertThat(left).contains("clean-real").doesNotContain("clean-test");
     }
 
     // ---------------------------------------------------------------- auth

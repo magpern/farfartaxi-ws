@@ -7,7 +7,6 @@ import com.farfartaxi.backend.service.NominatimProxyService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Optional;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /** Map-tap lookup: Nominatim reverse mapped to a {@link PlaceResult}. */
@@ -22,7 +21,7 @@ public class ReverseGeocodeService {
         this.metrics = metrics;
     }
 
-    /** @return empty when Nominatim has no address there; 429/502 AppExceptions otherwise */
+    /** @return empty when Nominatim has no address there; also on upstream failure (never 502); 429 AppException when over the rate budget */
     public Optional<PlaceResult> reverse(double lat, double lon) {
         long t0 = System.nanoTime();
         String body;
@@ -34,7 +33,7 @@ public class ReverseGeocodeService {
         }
         if (body == null) {
             metrics.placesReverse("error", System.nanoTime() - t0);
-            throw new AppException(HttpStatus.BAD_GATEWAY, "Reverse geocoding unavailable");
+            return Optional.empty(); // upstream trouble is not "our backend is down": 204, the client just has no label
         }
         Optional<PlaceResult> result = map(body, lat, lon);
         metrics.placesReverse(result.isPresent() ? "ok" : "empty", System.nanoTime() - t0);

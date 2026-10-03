@@ -30,7 +30,7 @@ public class PlaceSelectionEntity {
     @Column(nullable = false, length = 16)
     private String provider;
 
-    @Column(name = "provider_place_id", nullable = false, length = 128)
+    @Column(name = "provider_place_id", nullable = false, length = 512)
     private String providerPlaceId;
 
     @Column(nullable = false, length = 256)

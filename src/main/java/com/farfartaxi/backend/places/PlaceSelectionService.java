@@ -13,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -27,10 +30,15 @@ public class PlaceSelectionService {
 
     private final PlaceSelectionRepository repo;
     private final Clock clock;
+    private final TransactionTemplate tx;
 
-    public PlaceSelectionService(PlaceSelectionRepository repo, Clock clock) {
+    public PlaceSelectionService(PlaceSelectionRepository repo, Clock clock, PlatformTransactionManager txManager) {
         this.repo = repo;
         this.clock = clock;
+        this.tx = new TransactionTemplate(txManager);
+        for (int i = 0; i < locks.length; i++) {
+            locks[i] = new Object();
+        }
     }
 
     /** score * 0.5^(days/90) */
@@ -39,18 +47,33 @@ public class PlaceSelectionService {
         return score * Math.pow(0.5, days / HALF_LIFE_DAYS);
     }
 
-    @Transactional
+    /** Stripe locks serialize concurrent identical picks (double tap) inside this instance. */
+    private final Object[] locks = new Object[64];
+
     public void record(UserEntity user, PlaceSelectionRequest req) {
         String provider = req.provider() == null ? "" : req.provider().trim().toUpperCase(java.util.Locale.ROOT);
         String pid = req.providerPlaceId() == null ? "" : req.providerPlaceId().trim();
         String nq = PlaceNormalizer.normalize(req.query());
-        if (nq.length() < 2 || pid.isEmpty() || pid.length() > 128
+        if (nq.length() < 2 || pid.isEmpty() || pid.length() > 512
             || !(provider.equals("SL") || provider.equals("NOMINATIM")) || req.lat() == null || req.lon() == null) {
             return; // favorites/recents and malformed picks are not learned
         }
         if (nq.length() > 100) {
             nq = nq.substring(0, 100);
         }
+        String fnq = nq;
+        Object lock = locks[Math.floorMod(java.util.Objects.hash(user.getId(), fnq, provider, pid), locks.length)];
+        synchronized (lock) {
+            try {
+                tx.executeWithoutResult(s -> upsert(user, fnq, provider, pid, req));
+            } catch (DataIntegrityViolationException race) {
+                // another instance inserted the same key between our select and insert: now it exists, so update it
+                tx.executeWithoutResult(s -> upsert(user, fnq, provider, pid, req));
+            }
+        }
+    }
+
+    private void upsert(UserEntity user, String nq, String provider, String pid, PlaceSelectionRequest req) {
         Instant now = clock.instant();
         PlaceSelectionEntity e = repo.findByUserIdAndNormalizedQueryAndProviderAndProviderPlaceId(user.getId(), nq, provider, pid)
             .orElse(null);
@@ -69,7 +92,7 @@ public class PlaceSelectionService {
         e.setLat(req.lat());
         e.setLon(req.lon());
         e.setLastSelectedAt(now);
-        repo.save(e);
+        repo.saveAndFlush(e);
     }
 
     /** Boost per "provider|providerPlaceId" for places learned under a query starting with {@code normalizedQuery}. */

@@ -1,5 +1,6 @@
 package com.farfartaxi.backend.service;
 
+import com.farfartaxi.backend.repo.PlaceSelectionRepository;
 import com.farfartaxi.backend.repo.RideEventRepository;
 import com.farfartaxi.backend.repo.RideFeedbackRepository;
 import com.farfartaxi.backend.repo.RideMessageRepository;
@@ -21,13 +22,16 @@ public class TestRideCleanupJob {
     private final RideEventRepository eventRepository;
     private final RideFeedbackRepository feedbackRepository;
 
+    private final PlaceSelectionRepository placeSelectionRepository;
     private final RideOfferRepository offerRepository;
     private final RideMessageRepository messageRepository;
     private final RideNotificationSentRepository notificationRepository;
 
     public TestRideCleanupJob(RideRepository rideRepository, RideEventRepository eventRepository,
                               RideFeedbackRepository feedbackRepository, RideOfferRepository offerRepository,
-                              RideMessageRepository messageRepository, RideNotificationSentRepository notificationRepository) {
+                              RideMessageRepository messageRepository, RideNotificationSentRepository notificationRepository,
+                              PlaceSelectionRepository placeSelectionRepository) {
+        this.placeSelectionRepository = placeSelectionRepository;
         this.offerRepository = offerRepository;
         this.messageRepository = messageRepository;
         this.notificationRepository = notificationRepository;
@@ -45,7 +49,8 @@ public class TestRideCleanupJob {
         messageRepository.deleteForTestRides();
         notificationRepository.deleteForTestRides();
         int n = rideRepository.deleteAllTestRides();
-        log.info("Nightly cleanup removed {} test rides", n);
+        int sel = placeSelectionRepository.deleteForTestUsers();
+        log.info("Nightly cleanup removed {} test rides and {} test place selections", n, sel);
         return n;
     }
 
