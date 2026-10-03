@@ -20,7 +20,7 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V4 | M0B | test identities (users.is_test, rides.is_test) (deployed) |
 | V5 | M0C | refresh_tokens (deployed) |
 | V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version (deployed) |
-| V7 | M3 | place_selections (learned ranking) |
+| V7 | M3 | place_selections (learned ranking) (deployed) |
 | V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon |
 
 ## Milestones
@@ -32,8 +32,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M0C Auth modernization | **done** (v1.5.0, deployed 2026-10-03 ~18:20) |
 | M1 Core ride model | **done** (v1.6.0, deployed 2026-10-03 ~19:15) |
 | M2 Mobile UX shell | **done** (v1.7.0, deployed 2026-10-03 ~20:40) |
-| M3 Search and places | in progress |
-| M4 Places + one-tap trips | pending |
+| M3 Search and places | **done** (v1.8.0, deployed 2026-10-03 ~22:30) |
+| M4 Places + one-tap trips | in progress |
 | M5 Driver workflow | pending |
 | M6 Notifications | pending |
 | M7 Live tracking | pending |
@@ -83,6 +83,13 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Review (Opus): NOT CLEAN (B1 far-future booking hijacked home and blocked booking; B2 sheets stole focus every poll) -> fixed with 8 non-blocking items (ride cache scoped per user + TTL + cleared on logout, update guard counts cached pointer and in-flight mutations, 502-504 = unreachable, tap targets, confirmation shortcuts, visibility-gated polling, feedbackGiven). Master fix: losing concurrent accepts always RIDE_TAKEN (committed-status re-read), test tightened, 3 green runs.
 - Gates: 114 backend tests, 145 frontend tests (redirect logic, tab bars, offline Ring/SMS from cache, confirmation sheet, rating, history grouping, update policy incl. mid-ride/mid-booking no reload); Playwright 12/12 local and on production (active-ride redirect passenger/driver, offline banner + content + Ring, offline mutation not queued); smoke PASS on production; real rides unchanged; 0 ERROR lines.
 - PRs ws #6, web #5; release `v1.7.0` backend `sha256:bc632bde...`, frontend `sha256:ee317003...`.
+
+## M3 evidence
+- Contract `docs/m3-contract.md` (clarifications: places endpoints authenticated; public geocode endpoints removed; reverse moved to `/api/places/reverse`; route proxy kept; test-world selections isolated).
+- Work packages: backend places (Sonnet), frontend place search (Sonnet) + master-caught fix (GPS pickup label must never be "Min position" for the driver), e2e (Sonnet).
+- Review (Opus): CLEAN; non-blocking fixes applied (512-char provider ids, reverse upstream failure -> 204, language-independent GPS pickup flag + payload guard, gid ids, sites load retry, GPS accuracy gate, stop labels, map-tap fallback label, maxLength, busy state, dedupe permutations, selection upsert race, test selection cleanup, text_pattern_ops index).
+- Gates: 137 backend tests, 172 frontend tests, local e2e 26/26 + smoke x2; CI green; production: smoke PASS (incl. live SL search, old geocode 404), Playwright 24/26 in full run on the Pi (2 pixel-7 timeouts under Pi load) and the two specs 8/8 when rerun -> prod gate now uses --retries=1; live search quality from Järfälla GPS: "McDonalds" -> McDonalds — Järfälla (hållplats) 5.15 km, "Sveav" -> nearest Sveavägen first, "Kista Galleria" -> POI, "Jakobsbergs centrum" 0.11 km, "S:t Eriksplan" ok, "donken" -> McDonalds; nearest stop Jakobsbergs centrum 114 m; latency 69 searches: endpoint avg 34 ms, max 166 ms (p95 < 300 ms; before: avg 1181 ms, max 4376 ms); real rides unchanged; 0 ERROR lines.
+- Release `v1.8.0` backend `sha256:7a9f4a9d...`, frontend `sha256:79989427...`; Flyway V7.
 
 ## Deviations
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
