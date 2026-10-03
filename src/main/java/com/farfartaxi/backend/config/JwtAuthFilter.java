@@ -44,6 +44,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
                 }
+                if (user instanceof SecurityUser su && su.getCredentialsChangedAt() != null) {
+                    java.util.Date iat = claims.getIssuedAt();
+                    // JWT iat has second precision; tokens issued in the same second as the change stay valid.
+                    if (iat == null || iat.toInstant().getEpochSecond() < su.getCredentialsChangedAt().getEpochSecond()) {
+                        throw new IllegalStateException("Token issued before credentials change");
+                    }
+                }
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     user, null, user.getAuthorities());
                 SecurityContextHolder.getContext().setAuthentication(auth);

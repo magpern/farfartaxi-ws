@@ -5,6 +5,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -15,18 +16,25 @@ public class SecurityUser implements UserDetails {
     private final Role role;
     private final boolean enabled;
     private final boolean approved;
+    private final Instant credentialsChangedAt;
 
-    public SecurityUser(Long id, String email, String password, Role role, boolean enabled, boolean approved) {
+    public SecurityUser(Long id, String email, String password, Role role, boolean enabled, boolean approved,
+                        Instant credentialsChangedAt) {
         this.id = id;
         this.email = email;
         this.password = password;
         this.role = role;
         this.enabled = enabled;
         this.approved = approved;
+        this.credentialsChangedAt = credentialsChangedAt;
     }
 
     public boolean isApproved() {
         return approved;
+    }
+
+    public Instant getCredentialsChangedAt() {
+        return credentialsChangedAt;
     }
 
     public Long getId() {

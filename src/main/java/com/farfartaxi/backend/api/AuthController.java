@@ -41,8 +41,8 @@ public class AuthController {
     }
 
     @PostMapping("/set-password")
-    public void setPassword(@Valid @RequestBody SetPasswordRequest request) {
-        authService.setLocalPassword(request);
+    public AuthResponse setPassword(@Valid @RequestBody SetPasswordRequest request) {
+        return authService.setLocalPassword(request);
     }
 
     @PostMapping("/forgot-password")
@@ -51,8 +51,8 @@ public class AuthController {
     }
 
     @PostMapping("/change-password")
-    public void changePassword(@Valid @RequestBody ChangePasswordRequest request) {
-        authService.changePassword(request);
+    public AuthResponse changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        return authService.changePassword(request);
     }
 
     @GetMapping("/me")

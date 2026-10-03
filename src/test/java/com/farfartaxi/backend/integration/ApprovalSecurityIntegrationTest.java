@@ -141,6 +141,44 @@ class ApprovalSecurityIntegrationTest {
     }
 
     @Test
+    void preLinkAttackerTokenIsRevokedWhenVictimLinksGoogle() throws Exception {
+        String attackerToken = send("POST", "/api/auth/register", null, Map.of(
+            "email", "victim@test.local", "password", "Password123!", "fullName", "Attacker"), 200)
+            .get("token").asText();
+        send("GET", "/api/auth/me", attackerToken, null, 200);
+        Thread.sleep(1100); // JWT iat has second precision
+
+        when(googleIdTokenService.isConfigured()).thenReturn(true);
+        when(googleIdTokenService.verify("cred-v")).thenReturn(Optional.of(
+            new GoogleIdTokenService.GoogleProfile("sub-victim", "victim@test.local", "Victim", true)));
+        String victimToken = send("POST", "/api/auth/google", null, Map.of("credential", "cred-v"), 200)
+            .get("token").asText();
+
+        send("POST", "/api/auth/set-password", attackerToken, Map.of("newPassword", "Attacker123!"), 401);
+        send("GET", "/api/auth/me", attackerToken, null, 401);
+        send("GET", "/api/auth/me", victimToken, null, 200);
+
+        String adminToken = loginToken("admin@test.local", "Admin123!Test");
+        send("POST", "/api/admin/users/" + userId(adminToken, "victim@test.local") + "/approve", adminToken, null, 200);
+        send("GET", "/api/rides/my", attackerToken, null, 401);
+        send("GET", "/api/rides/my", victimToken, null, 200);
+        send("POST", "/api/auth/login", null, Map.of("email", "victim@test.local", "password", "Attacker123!"), 401);
+    }
+
+    @Test
+    void changePasswordRevokesOldTokenAndReturnsWorkingNewOne() throws Exception {
+        String adminToken = loginToken("admin@test.local", "Admin123!Test");
+        String oldToken = approvedUserToken(adminToken, "changer@test.local");
+        Thread.sleep(1100);
+        JsonNode res = send("POST", "/api/auth/change-password", oldToken, Map.of(
+            "oldPassword", "Password123!", "newPassword", "NewPassword123!"), 200);
+        String newToken = res.get("token").asText();
+        send("GET", "/api/rides/my", oldToken, null, 401);
+        send("GET", "/api/rides/my", newToken, null, 200);
+        send("POST", "/api/auth/login", null, Map.of("email", "changer@test.local", "password", "NewPassword123!"), 200);
+    }
+
+    @Test
     void adminCanRejectPendingUserWhoThenCannotLogIn() throws Exception {
         send("POST", "/api/auth/register", null, Map.of(
             "email", "reject-me@test.local", "password", "Password123!", "fullName", "Reject Me"), 200);

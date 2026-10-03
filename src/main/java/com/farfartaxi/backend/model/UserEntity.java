@@ -25,6 +25,9 @@ public class UserEntity {
     @Column(name = "password_hash")
     private String passwordHash;
 
+    @Column(name = "credentials_changed_at")
+    private Instant credentialsChangedAt;
+
     @Column(name = "google_sub")
     private String googleSub;
 
@@ -132,6 +135,14 @@ public class UserEntity {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Instant getCredentialsChangedAt() {
+        return credentialsChangedAt;
+    }
+
+    public void setCredentialsChangedAt(Instant credentialsChangedAt) {
+        this.credentialsChangedAt = credentialsChangedAt;
     }
 
     public boolean isApproved() {

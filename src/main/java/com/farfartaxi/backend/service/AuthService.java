@@ -100,6 +100,7 @@ public class AuthService {
                 // Pre-hijack defence: a pending account with a local password may have been registered by someone
                 // other than the verified email owner. Only the verified Google identity may sign in from now on.
                 byEmail.setPasswordHash(null);
+                byEmail.setCredentialsChangedAt(java.time.Instant.now());
                 byEmail.setMustChangePassword(false);
                 log.info("Cleared local password of pending user id={} on Google link", byEmail.getId());
             }
@@ -127,20 +128,22 @@ public class AuthService {
     }
 
     @Transactional
-    public void setLocalPassword(SetPasswordRequest request) {
+    public AuthResponse setLocalPassword(SetPasswordRequest request) {
         UserEntity user = currentUserService.requireUser();
         if (user.getPasswordHash() != null) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Password already set; use change password");
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
-        userRepository.save(user);
+        user.setCredentialsChangedAt(java.time.Instant.now());
+        return toAuthResponse(userRepository.save(user));
     }
 
     public void forgotPassword(String email) {
         // Placeholder for SMTP/token flow.
     }
 
-    public void changePassword(ChangePasswordRequest request) {
+    @Transactional
+    public AuthResponse changePassword(ChangePasswordRequest request) {
         UserEntity user = currentUserService.requireUser();
         if (user.getPasswordHash() == null) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Use set-password to add a password first");
@@ -150,7 +153,8 @@ public class AuthService {
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user.setMustChangePassword(false);
-        userRepository.save(user);
+        user.setCredentialsChangedAt(java.time.Instant.now());
+        return toAuthResponse(userRepository.save(user));
     }
 
     public UserView me() {

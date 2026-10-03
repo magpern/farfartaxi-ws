@@ -34,7 +34,8 @@ public class JwtService {
             throw new IllegalStateException("app.jwt.secret (APP_JWT_SECRET) must be at least " + MIN_SECRET_LENGTH + " characters");
         }
         String normalized = secret.trim().toLowerCase(java.util.Locale.ROOT);
-        if (REJECTED_SECRETS.contains(normalized) || normalized.startsWith("change_me")) {
+        String squashed = normalized.replace("-", "").replace("_", "");
+        if (REJECTED_SECRETS.contains(normalized) || squashed.startsWith("changeme")) {
             throw new IllegalStateException("app.jwt.secret (APP_JWT_SECRET) must not be the public default value or a placeholder");
         }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));

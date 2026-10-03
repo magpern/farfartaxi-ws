@@ -41,7 +41,10 @@ public class AdminBootstrapConfig {
         }
         userRepository.findByEmailIgnoreCase(adminEmail).ifPresentOrElse(existing -> {
             existing.setRole(Role.ADMIN);
-            existing.setPasswordHash(passwordEncoder.encode(adminPassword));
+            if (existing.getPasswordHash() == null || !passwordEncoder.matches(adminPassword, existing.getPasswordHash())) {
+                existing.setPasswordHash(passwordEncoder.encode(adminPassword));
+                existing.setCredentialsChangedAt(java.time.Instant.now());
+            }
             existing.setFullName(adminName);
             existing.setEnabled(true);
             existing.setApproved(true);
