@@ -30,6 +30,9 @@ public class AdminService {
         UserEntity actor = currentUserService.requireUser();
         UserEntity user = userRepository.findById(userId)
             .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+        if (user.isTest()) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Test accounts cannot change role");
+        }
         if (user.getRole() == Role.ADMIN && role != Role.ADMIN && userRepository.countByRole(Role.ADMIN) <= 1) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Cannot remove the last admin");
         }

@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Seeds the production test identities (is_test=true) when their passwords are configured via
- * FARFARTAXI_TEST_PASSENGER_PASSWORD / FARFARTAXI_TEST_DRIVER_PASSWORD. Does nothing otherwise.
+ * FARFARTAXI_TEST_PASSENGER_PASSWORD / FARFARTAXI_TEST_DRIVER_PASSWORD. Otherwise disables any existing test accounts.
  */
 @Component
 public class TestAccountBootstrapConfig {
@@ -42,7 +42,15 @@ public class TestAccountBootstrapConfig {
     @PostConstruct
     public void bootstrap() {
         if (isBlank(passengerPassword) || isBlank(driverPassword)) {
-            log.info("Test account passwords not configured; skipping test account bootstrap");
+            for (String email : new String[] {PASSENGER_EMAIL, DRIVER_EMAIL}) {
+                userRepository.findByEmailIgnoreCase(email).ifPresent(u -> {
+                    if (u.isEnabled()) {
+                        u.setEnabled(false);
+                        userRepository.save(u);
+                    }
+                });
+            }
+            log.info("test accounts disabled: not configured");
             return;
         }
         upsert(PASSENGER_EMAIL, "Test Passagerare", Role.USER, passengerPassword);

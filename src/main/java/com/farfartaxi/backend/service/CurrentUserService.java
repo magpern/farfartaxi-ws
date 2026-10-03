@@ -33,4 +33,10 @@ public class CurrentUserService {
         }
         return userRepository.findById(securityUser.getId()).orElse(null);
     }
+
+    /** True only for an authenticated real (non-test) user; used to fence test accounts out of admin actions. */
+    public boolean isRealUser() {
+        UserEntity u = currentUserOrNull();
+        return u != null && !u.isTest();
+    }
 }

@@ -2,7 +2,13 @@
 # Post-deploy smoke test. Usage: scripts/smoke.sh <base-url>
 # Env: TEST_PASSENGER_PASSWORD, TEST_DRIVER_PASSWORD (never printed).
 # Uses only the seeded test accounts and their own rides.
+# Secrets (passwords, bearer tokens) never appear on a command line: JSON bodies go to curl via
+# stdin (--data-binary @-), headers via a mode-600 curl config file removed on exit.
 set -u
+umask 077
+TMPD=$(mktemp -d) || { echo "mktemp failed" >&2; exit 2; }
+trap 'rm -rf "$TMPD"' EXIT
+CURL_CFG="$TMPD/curl.cfg"
 BASE="${1:-}"
 [ -n "$BASE" ] || { echo "usage: $0 <base-url>" >&2; exit 2; }
 BASE="${BASE%/}"
@@ -15,12 +21,20 @@ fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 
 # req METHOD PATH [TOKEN] [BODY] -> sets CODE and BODY_OUT
+# Authorization header goes in a mode-600 curl config file (-K); the body is fed on stdin.
 req() {
   local method="$1" path="$2" token="${3:-}" body="${4:-}" out
-  local args=(-sS -m 30 -o - -w $'\n%{http_code}' -X "$method" -H 'Accept: application/json')
-  [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
-  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' --data-binary "$body")
-  out=$(curl "${args[@]}" "$BASE$path") || fail "curl failed for $method $path"
+  local args=(-sS -m 30 -o - -w $'\n%{http_code}' -X "$method" -K "$CURL_CFG")
+  : > "$CURL_CFG"
+  printf 'header = "Accept: application/json"\n' >> "$CURL_CFG"
+  [ -n "$token" ] && printf 'header = "Authorization: Bearer %s"\n' "$token" >> "$CURL_CFG"
+  if [ -n "$body" ]; then
+    printf 'header = "Content-Type: application/json"\n' >> "$CURL_CFG"
+    args+=(--data-binary @-)
+    out=$(printf '%s' "$body" | curl "${args[@]}" "$BASE$path") || fail "curl failed for $method $path"
+  else
+    out=$(curl "${args[@]}" "$BASE$path" </dev/null) || fail "curl failed for $method $path"
+  fi
   CODE="${out##*$'\n'}"
   BODY_OUT="${out%$'\n'*}"
 }
@@ -30,7 +44,7 @@ expect() { # expect <label> <code>
 jget() { # jget <python expr over d>
   printf '%s' "$BODY_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print($1)" 2>/dev/null
 }
-login() { # login EMAIL PASSWORD -> prints token (password passed via env, not argv)
+login() { # login EMAIL PASSWORD -> prints token (password passed via env, never argv)
   local body
   body=$(EMAIL="$1" PW="$2" python3 -c 'import json,os; print(json.dumps({"email":os.environ["EMAIL"],"password":os.environ["PW"]}))')
   req POST /api/auth/login "" "$body"
