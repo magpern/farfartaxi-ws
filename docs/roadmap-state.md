@@ -19,7 +19,7 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V3 | M0A | users.approved, credentials_changed_at, version (deployed) |
 | V4 | M0B | test identities (users.is_test, rides.is_test) (deployed) |
 | V5 | M0C | refresh_tokens (deployed) |
-| V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version |
+| V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version (deployed) |
 
 ## Milestones
 | Milestone | Status |
@@ -28,8 +28,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 
 | M0B Baseline + safety net | **done** (v1.4.0, deployed 2026-10-03 ~17:55) |
 | M0C Auth modernization | **done** (v1.5.0, deployed 2026-10-03 ~18:20) |
-| M1 Core ride model | in progress |
-| M2 Mobile UX shell | pending |
+| M1 Core ride model | **done** (v1.6.0, deployed 2026-10-03 ~19:15) |
+| M2 Mobile UX shell | in progress |
 | M3 Search and places | pending |
 | M4 Places + one-tap trips | pending |
 | M5 Driver workflow | pending |
@@ -68,6 +68,13 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - PRs: ws #4 (`48b5461`), web #3. Release `v1.5.0`. Deployed backend `v1.5.0@sha256:149ec43b...`, frontend `v1.5.0@sha256:29f5810f...`; Flyway V5; pre-deploy dump taken.
 - Gates: 54 backend tests (rotation, race grace, family revocation incl. after 10 days, concurrent refresh, logout, logout-everywhere kills access+refresh, disabled user, 60-min lifetime); 32 frontend unit tests; production: login Set-Cookie `ft_refresh; Path=/api/auth; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`, body keys only token/user, access lifetime 3600 s; Playwright 4/4 on production incl. silent refresh after access-token expiry and logout revocation; smoke PASS; real rides unchanged; 0 ERROR lines.
 - Known trade-off (documented): if a refresh response is lost on a flaky network and the client retries >30 s later with the old cookie, reuse detection logs that device out.
+
+## M1 evidence
+- Contract: `docs/m1-contract.md` (master clarifications: ADMIN counts as driver; scheduled rides still REQUESTED at their time -> NO_DRIVER; `ride_notifications_sent` created in M1 for once-only timers).
+- Work packages: backend ride model (Sonnet), frontend adaptation incl. messages view (Sonnet), e2e/smoke update + double-tap spec (Sonnet).
+- Reviews (Opus): deep review NOT CLEAN (B1 accept without offer; B2 keep-waiting re-offered withdrawn/away drivers) + 16 non-blocking -> fixed (scheduler row lock, conditional markViewed, away rule everywhere, timer reset on edit/return, accept race mapping, V6 offer backfill + corrected rollback SQL, kind-less near-now = NOW, 3 s OSRM budget, stale NO_DRIVER to history, messages current participants only, offerPriority, driver deletion, zero-offer -> NO_DRIVER, frontend attribution/edit/GPS throttle/error text); re-review CLEAN; final small fixes (NOW-ride edit, accepted-ride offer backfill, deletion -> NO_DRIVER check, repush guard).
+- Gates: 104 backend tests (all transitions/guards, concurrent accepts, decline-all/keep-waiting/ALL_DECLINED, NOW 10/20-min timers, scheduled-time NO_DRIVER, once-only reminders, material vs minor edit, away Saturday/Sunday, idempotency incl. concurrent same key, proximity, cancel rules, messages, availableActions, phone privacy, V6 data migration); 66 frontend tests incl. DST 2026-10-25 / 2027-03-28; local e2e smoke x2 + Playwright 6/6; V6 migration gate on fresh production dump (59 ms, validate OK, 38 rides intact); CI green.
+- PRs ws #5 (`bb44c07`), web #4; release `v1.6.0`: backend `sha256:02540603...`, frontend `sha256:bd7fce1f...`; deployed with no in-flight rides; production smoke PASS (new flow), Playwright 6/6 on production, real rides unchanged, 0 ERROR lines.
 
 ## Deviations
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
