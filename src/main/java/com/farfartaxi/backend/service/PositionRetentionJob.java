@@ -28,7 +28,9 @@ public class PositionRetentionJob {
         this.enabled = enabled;
     }
 
+    // @Transactional here too: run() calls clearExpiredPositions() on `this`, which bypasses the proxy.
     @Scheduled(cron = "30 * * * * *")
+    @Transactional
     public void run() {
         if (enabled) {
             clearExpiredPositions();
