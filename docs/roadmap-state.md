@@ -18,7 +18,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 |---|---|---|
 | V3 | M0A | users.approved, credentials_changed_at, version (deployed) |
 | V4 | M0B | test identities (users.is_test, rides.is_test) (deployed) |
-| V5 | M0C | refresh_tokens |
+| V5 | M0C | refresh_tokens (deployed) |
+| V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version |
 
 ## Milestones
 | Milestone | Status |
@@ -26,8 +27,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M0A Security containment | **done** (v1.3.0, deployed 2026-10-03 17:13) |
 
 | M0B Baseline + safety net | **done** (v1.4.0, deployed 2026-10-03 ~17:55) |
-| M0C Auth modernization | in progress |
-| M1 Core ride model | pending |
+| M0C Auth modernization | **done** (v1.5.0, deployed 2026-10-03 ~18:20) |
+| M1 Core ride model | in progress |
 | M2 Mobile UX shell | pending |
 | M3 Search and places | pending |
 | M4 Places + one-tap trips | pending |
@@ -60,6 +61,13 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Deployed: backend `v1.4.0@sha256:130475f68f8f560034955c6bf523bf2570108363a4285bb64a3a55999c81ea41`, frontend `v1.4.0@sha256:bdfe129e9684c93d5c46a79c595c6961d27b38c52e4106b05437dfc8ae44b88c`; pre-deploy dump `backups/*-pre-v1.4.0.dump`; Flyway V4 applied.
 - Test credentials generated randomly on the Pi into `.env` (chmod 600); never printed.
 - Gates: CI backend/frontend/e2e green; 38 backend tests incl. two-way isolation for every ride endpoint; `/actuator/prometheus` reachable only on the compose network (:8090), LAN 8090 closed, public `/actuator/*` serves only the SPA HTML; `X-Request-Id` echoed; `/api/public/version` = v1.4.0/c4eb85f; `scripts/smoke.sh` PASS against production; Playwright golden flow 2/2 PASS against production (after login-page fix); real rides unchanged (32, same max updated_at) before/after; transitions metric shows only `world="test"` increments; 0 push log lines; 0 ERROR lines.
+
+## M0C evidence
+- Work packages: backend refresh tokens (Sonnet), frontend silent refresh + admin logout-everywhere + Playwright spec (Sonnet). CI now builds the same-named farfartaxi-web branch for cross-repo PRs.
+- Review (Opus): NOT CLEAN (B1 cleanup deleted rotated rows -> broke reuse detection after 7 days; B2 hung refresh -> blank boot screen) -> fixed, plus logout revokes whole family + client generation guard, refresh rejects tokens older than credentials_changed_at, Clock injection.
+- PRs: ws #4 (`48b5461`), web #3. Release `v1.5.0`. Deployed backend `v1.5.0@sha256:149ec43b...`, frontend `v1.5.0@sha256:29f5810f...`; Flyway V5; pre-deploy dump taken.
+- Gates: 54 backend tests (rotation, race grace, family revocation incl. after 10 days, concurrent refresh, logout, logout-everywhere kills access+refresh, disabled user, 60-min lifetime); 32 frontend unit tests; production: login Set-Cookie `ft_refresh; Path=/api/auth; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`, body keys only token/user, access lifetime 3600 s; Playwright 4/4 on production incl. silent refresh after access-token expiry and logout revocation; smoke PASS; real rides unchanged; 0 ERROR lines.
+- Known trade-off (documented): if a refresh response is lost on a flaky network and the client retries >30 s later with the old cookie, reuse detection logs that device out.
 
 ## Deviations
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
