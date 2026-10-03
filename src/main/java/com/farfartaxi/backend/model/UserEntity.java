@@ -75,6 +75,10 @@ public class UserEntity {
     @Column(name = "driver_away_until")
     private java.time.LocalDate driverAwayUntil;
 
+    /** Language of push notifications (sv | en). */
+    @Column(nullable = false, length = 8)
+    private String locale = "sv";
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -209,6 +213,8 @@ public class UserEntity {
         this.test = test;
     }
 
+    public String getLocale() { return locale; }
+    public void setLocale(String locale) { this.locale = locale; }
     public boolean isDriverAvailableNow() { return driverAvailableNow; }
     public void setDriverAvailableNow(boolean v) { this.driverAvailableNow = v; }
     public java.time.LocalDate getDriverAwayFrom() { return driverAwayFrom; }

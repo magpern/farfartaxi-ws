@@ -91,7 +91,9 @@ public class RideMessageService {
         m.setCreatedAt(clock.instant());
         m = messages.save(m);
         Long recipient = passenger ? ride.getAcceptedByDriver().getId() : ride.getPassenger().getId();
-        push.notifyUser(recipient, user.getFullName(), code.text());
+        push.send(recipient, PushCategory.RIDE_UPDATES, "MESSAGE", rideId,
+            passenger ? "/app/forare/kor/" + rideId : "/app/resa/" + rideId, "msg." + code.name(),
+            java.util.List.of(PushArgs.firstName(user.getFullName())));
         return toDto(m);
     }
 

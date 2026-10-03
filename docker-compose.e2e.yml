@@ -31,6 +31,12 @@ services:
       FARFARTAXI_ADMIN_PASSWORD: e2e-only-admin-password-1
       FARFARTAXI_TEST_PASSENGER_PASSWORD: ${TEST_PASSENGER_PASSWORD:-e2e-only-passenger-pw-1}
       FARFARTAXI_TEST_DRIVER_PASSWORD: ${TEST_DRIVER_PASSWORD:-e2e-only-driver-pw-1}
+      # e2e-only VAPID pair, generated for this throwaway stack. Not used anywhere real; never reuse.
+      VAPID_PUBLIC_KEY: BH1YFob2r0uTH9178li3JvK8RliPl1SD2nxvM0EZtBpvRw7QkajUeYXHTSRadHTDWgCLT7u3eYIHVcEtYPK72Vc
+      VAPID_PRIVATE_KEY: n2ZazXhjTflCXwiPSFi5-nPVTusjHt53bmOm_HKlgZs
+      VAPID_SUBJECT: https://e2e.invalid
+      # The production allowlist plus the fake push host used by the browser tests (headless Chromium has no real push service).
+      PUSH_ENDPOINT_ALLOWLIST: fcm.googleapis.com,*.push.apple.com,updates.push.services.mozilla.com,*.push.services.mozilla.com,*.notify.windows.com,android.googleapis.com,push.e2e.invalid
     depends_on:
       postgres:
         condition: service_healthy

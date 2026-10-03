@@ -32,8 +32,8 @@ public class RideSystemTransitions {
         offers.expireOpen(ride);
         RideEntity saved = rides.save(ride);
         events.record(saved, null, RideEventRecorder.NO_DRIVER, reason);
-        push.notifyUser(saved.getPassenger().getId(), "Ingen förare har tackat ja än",
-            "Fortsätt vänta, ring eller avboka.");
+        push.send(saved.getPassenger().getId(), PushCategory.RIDE_UPDATES, "NO_DRIVER", saved.getId(),
+            "/app/resa/" + saved.getId(), "ride.no_driver", java.util.List.of());
         responses.publish(saved);
     }
 }

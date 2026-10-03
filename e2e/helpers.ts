@@ -75,7 +75,8 @@ export async function loginViaUi(page: Page, u: { email: string; password: strin
   await page.getByRole('button', { name: 'Fortsätt' }).click()
   await expect(page).toHaveURL(/\/app/)
   // The PWA-install modal appears once after login and blocks the page; dismiss it.
-  const later = page.getByRole('button', { name: 'Inte nu' })
+  // scoped to the dialog: the M6 notification card also has an "Inte nu" button
+  const later = page.getByRole('dialog').getByRole('button', { name: 'Inte nu' })
   await later.waitFor({ state: 'visible', timeout: 5_000 }).then(() => later.click(), () => {})
 }
 

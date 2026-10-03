@@ -59,6 +59,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     "app.admin.password=Admin123!Test",
     "app.admin.name=Admin Test",
     "app.rides.scheduler-enabled=false",
+    "app.vapid.public-key=BHhhj76Yn11MB9kpuMOv1t17mpRZzGY4BgVQz1NwdX8mmPoxuDojE5X1IsLiFWuuc4kgAmp_IQTdY5rbDGsbcRg",
+    "app.vapid.private-key=A79KOH8Vt1XZY8NOYni8EMPf2G-FLEH1nEBThKshSI0",
+    "app.vapid.subject=https://farfartaxi.test",
+    "app.push.endpoint-allowlist=",
     "farfartaxi.test.passenger-password=TestPass123!",
     "farfartaxi.test.driver-password=TestDrive123!"
 })

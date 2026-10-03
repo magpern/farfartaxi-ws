@@ -46,6 +46,15 @@ public class RideOfferService {
             .stream().filter(u -> !u.getId().equals(passengerId)).toList();
     }
 
+    private static String rideKey(String base, RideEntity ride) {
+        return ride.getKind() == RideKind.NOW ? base + "_now" : base;
+    }
+
+    /** Offer-list notification for a driver (opens the driver home). */
+    private void toDriver(Long driverId, PushCategory category, String kind, RideEntity ride, String key, java.util.List<String> args) {
+        push.send(driverId, category, kind, ride.getId(), "/app/forare", key, args);
+    }
+
     private LocalDate today() {
         return Geo.stockholmDate(clock.instant());
     }
@@ -93,7 +102,7 @@ public class RideOfferService {
             boolean eligible = !d.isAwayOn(date) && (ride.getKind() == RideKind.SCHEDULED || d.isDriverAvailableNow());
             if (eligible) {
                 newOffer(ride, d);
-                push.notifyUser(d.getId(), "Ny Farfartaxi-bokning", "En ny resa väntar på svar.");
+                toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "NEW_RIDE", ride, rideKey("ride.new", ride), PushArgs.ride(ride));
             }
         }
     }
@@ -120,17 +129,17 @@ public class RideOfferService {
             } else if (!o.getStatus().isOpen()) {
                 continue;
             }
-            push.notifyUser(d.getId(), "Resa väntar fortfarande", "Ingen har tagit resan än.");
+            toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "NOW_REPUSH", ride, "ride.repush", PushArgs.ride(ride));
         }
     }
 
     /** Pushes to every driver with an open offer, except those away on the ride's date. */
-    public void pushToOpen(RideEntity ride, String title, String body) {
+    public void pushToOpen(RideEntity ride, PushCategory category, String kind, String key, java.util.List<String> args) {
         LocalDate date = rideDate(ride);
         for (RideOfferEntity o : openOffers(ride.getId())) {
             boolean away = users.findById(o.getDriverId()).map(u -> u.isAwayOn(date)).orElse(true);
             if (!away) {
-                push.notifyUser(o.getDriverId(), title, body);
+                toDriver(o.getDriverId(), category, kind, ride, key, args);
             }
         }
     }
@@ -238,7 +247,7 @@ public class RideOfferService {
                     continue;
                 }
                 reset(o, false);
-                push.notifyUser(o.getDriverId(), "Resa blev ledig igen", "En resa är tillbaka i kön.");
+                toDriver(o.getDriverId(), PushCategory.RIDE_REQUESTS, "RIDE_REOFFERED", ride, rideKey("ride.reoffered", ride), PushArgs.ride(ride));
                 open++;
             } else if (o.getStatus().isOpen()) {
                 open++;
@@ -259,7 +268,8 @@ public class RideOfferService {
             if (o.getDriverId().equals(priorDriverId)) {
                 if (isEligibleDriver(drivers.get(priorDriverId), date)) {
                     reset(o, true);
-                    push.notifyUser(o.getDriverId(), "Resan ändrades", passengerName + " ändrade resan — bekräfta.");
+                    toDriver(o.getDriverId(), PushCategory.RIDE_REQUESTS, "RIDE_CHANGED_CONFIRM", ride, "ride.confirm_changed",
+                        java.util.List.of(PushArgs.firstName(passengerName)));
                 } else {
                     o.setStatus(OfferStatus.WITHDRAWN); // away on the new date: cannot take it
                     o.setRespondedAt(clock.instant());
@@ -271,7 +281,7 @@ public class RideOfferService {
             if (!o.getDriverId().equals(priorDriverId) && REOFFERABLE.contains(o.getStatus())
                 && isEligibleDriver(drivers.get(o.getDriverId()), date)) {
                 reset(o, false);
-                push.notifyUser(o.getDriverId(), "Resa väntar", "En resa har ändrats och väntar på en förare.");
+                toDriver(o.getDriverId(), PushCategory.RIDE_REQUESTS, "RIDE_REOFFERED", ride, rideKey("ride.reoffered", ride), PushArgs.ride(ride));
             }
         }
     }
@@ -293,12 +303,12 @@ public class RideOfferService {
                 }
             } else if (o == null) {
                 newOffer(ride, d);
-                push.notifyUser(d.getId(), "Ny Farfartaxi-bokning", "En ny resa väntar på svar.");
+                toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "NEW_RIDE", ride, rideKey("ride.new", ride), PushArgs.ride(ride));
             } else if (REOFFERABLE.contains(o.getStatus()) || (reopenDecliners && o.getStatus() == OfferStatus.DECLINED)) {
                 reset(o, false);
-                push.notifyUser(d.getId(), "Resa väntar", "En resa har ändrats och väntar på svar.");
+                toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "RIDE_REOFFERED", ride, rideKey("ride.reoffered", ride), PushArgs.ride(ride));
             } else if (o.getStatus().isOpen()) {
-                push.notifyUser(d.getId(), "Resan ändrades", "Tiden för en resa har ändrats.");
+                toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "RIDE_EDITED", ride, "ride.edited_open", PushArgs.ride(ride));
             }
         }
     }
@@ -343,7 +353,7 @@ public class RideOfferService {
             } else {
                 reset(o, false);
             }
-            push.notifyUser(d.getId(), "Resa väntar", "En resa väntar fortfarande på en förare.");
+            toDriver(d.getId(), PushCategory.RIDE_REQUESTS, "RIDE_REOFFERED", ride, rideKey("ride.reoffered", ride), PushArgs.ride(ride));
         }
     }
 }

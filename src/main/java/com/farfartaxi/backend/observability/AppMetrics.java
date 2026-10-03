@@ -20,7 +20,12 @@ public class AppMetrics {
     }
 
     public void pushSent(boolean ok) {
-        registry.counter("farfartaxi.push", "outcome", ok ? "ok" : "error").increment();
+        push(ok ? "ok" : "error", "unknown");
+    }
+
+    /** @param outcome ok|error|gone|disabled|rejected; @param kind notification kind (fixed, low-cardinality set) */
+    public void push(String outcome, String kind) {
+        registry.counter("farfartaxi.push", "outcome", outcome, "kind", kind == null ? "unknown" : kind).increment();
     }
 
     /** @param provider SL etc.; @param outcome ok|empty|error */
