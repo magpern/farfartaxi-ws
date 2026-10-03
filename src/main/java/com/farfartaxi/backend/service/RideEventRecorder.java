@@ -1,6 +1,8 @@
 package com.farfartaxi.backend.service;
 
+import com.farfartaxi.backend.model.RideEntity;
 import com.farfartaxi.backend.model.RideEventEntity;
+import com.farfartaxi.backend.observability.AppMetrics;
 import com.farfartaxi.backend.repo.RideEventRepository;
 import org.springframework.stereotype.Service;
 
@@ -19,9 +21,21 @@ public class RideEventRecorder {
     public static final String SHARE_REVOKED = "SHARE_REVOKED";
 
     private final RideEventRepository repository;
+    private final AppMetrics metrics;
 
-    public RideEventRecorder(RideEventRepository repository) {
+    public RideEventRecorder(RideEventRepository repository, AppMetrics metrics) {
         this.repository = repository;
+        this.metrics = metrics;
+    }
+
+    /** Records the event and counts it as a transition metric, tagged by test/real world. */
+    public void record(RideEntity ride, Long actorId, String type, String comment) {
+        record(ride.getId(), actorId, type, comment);
+        metrics.rideTransition(type, ride.isTest());
+    }
+
+    public void record(RideEntity ride, Long actorId, String type) {
+        record(ride, actorId, type, null);
     }
 
     public void record(Long rideId, Long actorId, String type, String comment) {

@@ -77,7 +77,7 @@ public class RideService {
         ride.setStatus(RideStatus.PENDING_OPEN);
         ride.setTest(passenger.isTest());
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), actor.getId(), RideEventRecorder.BOOKED, passenger.getId().equals(actor.getId()) ? null : "on behalf of user " + passenger.getId());
+        events.record(ride, actor.getId(), RideEventRecorder.BOOKED, passenger.getId().equals(actor.getId()) ? null : "on behalf of user " + passenger.getId());
         pushService.notifyRole(Role.DRIVER, ride.isTest(), "Ny Farfartaxi-bokning", "En ny resa vantar pa accept.");
         return toResponse(ride);
     }
@@ -109,7 +109,7 @@ public class RideService {
         ride.setStatus(RideStatus.CANCELLED);
         ride.setCancelReason(reason);
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), user.getId(), RideEventRecorder.CANCELLED, reason);
+        events.record(ride, user.getId(), RideEventRecorder.CANCELLED, reason);
         RideResponse response = toResponse(ride);
         if (driverId != null) {
             pushService.notifyUser(driverId, "Resa avbokad", "Passageraren har avbokat resan.");
@@ -149,7 +149,7 @@ public class RideService {
         ride.setAcceptedByDriver(driver);
         ride.setStatus(RideStatus.ACCEPTED);
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), driver.getId(), RideEventRecorder.ACCEPTED);
+        events.record(ride, driver.getId(), RideEventRecorder.ACCEPTED);
         pushService.notifyUser(ride.getPassenger().getId(), "Din resa accepterades", driver.getFullName() + " tar resan.");
         realtimeService.publish(ride.getId(), ride.getPassenger().getId(), driver.getId(), toResponse(ride));
         return toResponse(ride);
@@ -167,7 +167,7 @@ public class RideService {
         ride.setRefusalComment(request.comment());
         ride.setStatus(RideStatus.REJECTED);
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), driver.getId(), RideEventRecorder.REFUSED, request.comment());
+        events.record(ride, driver.getId(), RideEventRecorder.REFUSED, request.comment());
         return toResponse(ride);
     }
 
@@ -185,7 +185,7 @@ public class RideService {
         ride.setAcceptedByDriver(null);
         ride.setStatus(RideStatus.PENDING_OPEN);
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), driver.getId(), RideEventRecorder.UNACCEPTED);
+        events.record(ride, driver.getId(), RideEventRecorder.UNACCEPTED);
         pushService.notifyRole(Role.DRIVER, ride.isTest(), "Resa blev ledig igen", "En resa ar tillbaka i koen.");
         return toResponse(ride);
     }
@@ -202,7 +202,7 @@ public class RideService {
         ride.setStatus(RideStatus.IN_PROGRESS);
         ride.setStartedAt(Instant.now());
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), driver.getId(), RideEventRecorder.STARTED);
+        events.record(ride, driver.getId(), RideEventRecorder.STARTED);
         pushService.notifyUser(ride.getPassenger().getId(), "Foraren har startat", "Resan ar pa vag.");
         realtimeService.publish(ride.getId(), ride.getPassenger().getId(), driver.getId(), toResponse(ride));
         return toResponse(ride);
@@ -238,7 +238,7 @@ public class RideService {
         ride.setStatus(RideStatus.COMPLETED);
         ride.setCompletedAt(Instant.now());
         ride = rideRepository.save(ride);
-        events.record(ride.getId(), driver.getId(), RideEventRecorder.COMPLETED);
+        events.record(ride, driver.getId(), RideEventRecorder.COMPLETED);
         pushService.notifyUser(ride.getPassenger().getId(), "Resan klar", "Tack for att du bokade Farfartaxi.");
         realtimeService.publish(ride.getId(), ride.getPassenger().getId(), driver.getId(), toResponse(ride));
         return toResponse(ride);
@@ -263,7 +263,7 @@ public class RideService {
         feedback.setStars(request.stars());
         feedback.setComment(request.comment());
         rideFeedbackRepository.save(feedback);
-        events.record(rideId, passenger.getId(), RideEventRecorder.FEEDBACK, "stars=" + request.stars());
+        events.record(ride, passenger.getId(), RideEventRecorder.FEEDBACK, "stars=" + request.stars());
     }
 
     @Transactional
@@ -277,7 +277,7 @@ public class RideService {
         ride.setShareToken(token);
         ride.setShareExpiresAt(Instant.now().plusSeconds(60L * 60L * 8L));
         rideRepository.save(ride);
-        events.record(ride.getId(), passenger.getId(), RideEventRecorder.SHARE_CREATED);
+        events.record(ride, passenger.getId(), RideEventRecorder.SHARE_CREATED);
         return baseUrl + "/api/rides/share/" + token;
     }
 
@@ -291,7 +291,7 @@ public class RideService {
         ride.setShareToken(null);
         ride.setShareExpiresAt(null);
         rideRepository.save(ride);
-        events.record(ride.getId(), passenger.getId(), RideEventRecorder.SHARE_REVOKED);
+        events.record(ride, passenger.getId(), RideEventRecorder.SHARE_REVOKED);
     }
 
     public RideResponse byShareToken(String token) {

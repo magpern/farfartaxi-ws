@@ -15,8 +15,8 @@ public class AppMetrics {
     }
 
     /** @param type target ride status / transition name, e.g. BOOKED, ACCEPTED, COMPLETED */
-    public void rideTransition(String type) {
-        registry.counter("farfartaxi.ride.transitions", "type", type == null ? "unknown" : type).increment();
+    public void rideTransition(String type, boolean test) {
+        registry.counter("farfartaxi.ride.transitions", "type", type == null ? "unknown" : type, "world", test ? "test" : "real").increment();
     }
 
     public void pushSent(boolean ok) {

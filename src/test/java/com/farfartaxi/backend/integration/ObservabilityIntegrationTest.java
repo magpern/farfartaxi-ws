@@ -57,15 +57,15 @@ class ObservabilityIntegrationTest {
     void actuatorNotOnAppPort() throws Exception {
         assertThat(mgmtPort).isNotEqualTo(port);
         HttpResponse<String> r = get("http://localhost:" + port + "/actuator/prometheus", null);
-        assertThat(r.statusCode()).isNotEqualTo(200);
+        assertThat(r.statusCode()).isEqualTo(404);
         assertThat(r.body()).doesNotContain("jvm_");
-        assertThat(get("http://localhost:" + port + "/actuator/info", null).statusCode()).isNotEqualTo(200);
+        assertThat(get("http://localhost:" + port + "/actuator/info", null).statusCode()).isEqualTo(404);
     }
 
     @Test
     void prometheusOnManagementPort() throws Exception {
         metrics.geocodeSearch("ok", 1_000_000L);
-        metrics.rideTransition("BOOKED");
+        metrics.rideTransition("BOOKED", false);
         metrics.pushSent(true);
         HttpResponse<String> r = get("http://localhost:" + mgmtPort + "/actuator/prometheus", null);
         assertThat(r.statusCode()).as(r.body()).isEqualTo(200);
