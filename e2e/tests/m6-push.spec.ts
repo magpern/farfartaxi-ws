@@ -18,7 +18,9 @@ import { apiLogin, bearer, baseURL, bookRideApi, cancelAllMine, cancelRideApi, i
 test.use({ channel: 'chromium' })
 
 const REAL_SUBSCRIBE = process.env.E2E_REAL_PUSH_SUBSCRIBE === '1'
-const FAKE_ENDPOINT = 'https://push.e2e.invalid/send/'
+// Allowlisted push host (FCM-shaped URL with a bogus token): accepted by both the e2e and the production allowlist.
+// The backend may later try to deliver to it; FCM answers 404 and the subscription is deleted automatically.
+const FAKE_ENDPOINT = 'https://fcm.googleapis.com/fcm/send/e2e-fake-'
 
 const isIphone = (name: string) => name === 'iphone-13'
 
