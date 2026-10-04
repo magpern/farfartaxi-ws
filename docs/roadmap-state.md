@@ -24,7 +24,8 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon, one-HOME partial unique index (deployed) |
 | V9 | M6 | users.locale, notification_prefs (deployed) |
 | V10 | M7 | live tracking: accuracy, ETA target/computed position, cancelled_at, share_revoked_at (deployed) |
-| V11 | M8 | app_events |
+| V11 | M8 | app_events (deployed) |
+| V12 | hardening | Java migration: scrub raw frontend_error messages from app_events |
 
 ## Milestones
 | Milestone | Status |
@@ -40,7 +41,7 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M5 Driver workflow | **done** (v1.10.0, deployed 2026-10-04 ~01:30) |
 | M6 Notifications | **done** (v1.11.0 + hotfix v1.11.1, gates passed 2026-10-04 ~00:45) |
 | M7 Live tracking | **done** (v1.12.0, deployed 2026-10-04 ~01:20) |
-| M8 Observability + ops | in progress |
+| M8 Observability + ops | **done** (v1.13.0 + post-review hardening v1.13.1) |
 
 ## M0A evidence
 - Ops containment done on Pi (2026-10-03 16:42):
@@ -122,6 +123,25 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Review (Opus): NOT CLEAN (B1 retention job never cleared positions in production; B2 returned rides kept the previous driver's position, visible on share page) -> fixed; plus CF-Connecting-IP rate-limit key + bounded limiter, OSRM outside the transaction, shareActive, 12 h runaway expiry, iOS-safe two-tap share (master rejected the worker's auto-created share links as a privacy issue), 60 s driver heartbeat, denied-permission guidance, wake-lock race, pinch-zoom handling, neutral stale wording.
 - Gates: backend 183 tests (Clock-controlled retention at ride end + 1 h, ETA rule, share 410/404/429, anonymized DTO), frontend 296 tests; local e2e 53 passed; production: smoke PASS (incl. no position after return), Playwright 53 passed on production incl. live tracking with emulated GPS along a route (marker latency 3-6 s), driver reload resume, ETA target switch, stale warning after 2 min, public share page logged out + 410 after revoke; real rides unchanged; 0 ERROR lines.
 - Release `v1.12.0` backend `sha256:bae62124...`, frontend `sha256:00e7e0da...`.
+
+## M8 evidence
+- Contract `docs/m8-contract.md` (deviation: Grafana reads Prometheus only; deploy path `/home/magpern/farfartaxi-observability/` on newhomeserver since /srv needs root; Prometheus runs as uid 1000 to read the 0600 scrape secret).
+- Work packages: backend metrics/telemetry/management auth/ECS logs (Sonnet), frontend telemetry (Sonnet), ops Prometheus+Grafana as code (Sonnet).
+- Review (Opus): NOT CLEAN (B1 coordinates could reach app_events via free-text strings; B2 verify script would pass empty panels) -> fixed with enum props, world tags on push/search metrics, ratio/stat panels, SHA-256 management auth, no coordinates in OSRM logs.
+- **Live bug found by e2e (trace analysis):** a driver's step tap ("Jag är framme") got 409 when it raced a GPS position post (location writes bumped the ride @Version). Fixed: unversioned guarded position/ETA UPDATE + @DynamicUpdate; 0 step conflicts afterwards. Was present in production since v1.12.0.
+- Release incident: the v1.13.0 GitHub release build hung >1.5 h in the arm64 frontend build (QEMU); cancelled + rerun succeeded. The deploy script's `set -u` stopped the interrupted deploy before touching production.
+- Gates (production v1.13.0): Playwright 52 passed + 1 flaky (transient login under Pi load, passed on retry); smoke PASS incl. telemetry; metrics endpoint 401 without / 200 with auth on 192.168.1.151:8090 only, app port 404, public URL serves only the SPA; Prometheus target up; `verify-grafana.sh --selftest` proves empty panels FAIL; with WORLD=test every required panel has data (funnel, transitions, search p95/rate, time-to-accept, pickup wait, NO_DRIVER, push subscriptions/outcomes/permission, frontend_error, JVM/Hikari/uptime); app_events: 0 coordinate-like, 0 email-like values.
+- Telemetry already paid off: production frontend_error events revealed a Leaflet `_leaflet_pos` unmount bug -> fixed in hardening.
+- Release `v1.13.0` backend `sha256:9d4579f7...`, frontend `sha256:9fc9ea88...`; Flyway V10+V11.
+
+## Post-review hardening (external reviewer, after M8)
+- P1 frontend_error privacy: raw exception text is never sent or stored (type/source/code/line/16-hex fingerprint only); V12 scrubs existing rows.
+- P2 route proxy: anonymous `/api/public/route/driving` removed; authenticated `/api/route/driving` + share-scoped `/api/public/share/{token}/route`; Sweden bbox validation, 3 s timeout, 10 min cache, per-user/per-IP limits; OSRM down -> 200 `{"code":"Unavailable"}` (no offline banner).
+- P3 telemetry quota counts only valid events; separate 300 req/h per-user limiter.
+- Auth rate limits per client IP (register 20/h, login 300/15 min, google 30/15 min, forgot 20/h) + 10 failed logins per email per 15 min; 429 RATE_LIMITED + Retry-After; limiter cap 100k keys, fails closed for new keys when full (never resets existing counts).
+- Leaflet unmount safety (disposeMap/isMapAlive, no animated programmatic fits).
+- Independent review of the hardening: CLEAN; follow-ups applied.
+- Accepted/documented risks: CF-Connecting-IP is trusted; a device on the home LAN could reach the frontend port directly and spoof it (LAN-only). Someone knowing a family member's email can block their password login for 15 min (Google sign-in unaffected).
 
 ## Deviations
 - M6/M7: M7 development started while M6's last production gate waited ~3 h for an external Cloudflare cache TTL; M7 was not merged or deployed until M6's gates passed (single integration stream preserved).
