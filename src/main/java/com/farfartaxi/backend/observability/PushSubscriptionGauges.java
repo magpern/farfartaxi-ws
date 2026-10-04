@@ -21,9 +21,9 @@ public class PushSubscriptionGauges {
     public PushSubscriptionGauges(PushSubscriptionRepository repo, MeterRegistry registry) {
         this.repo = repo;
         Gauge.builder("farfartaxi.push.subscriptions", real, Cached::get).tag("world", "real")
-            .description("Stored push subscriptions").register(registry);
+            .description("Stored push subscriptions").strongReference(true).register(registry);
         Gauge.builder("farfartaxi.push.subscriptions", test, Cached::get).tag("world", "test")
-            .description("Stored push subscriptions").register(registry);
+            .description("Stored push subscriptions").strongReference(true).register(registry);
     }
 
     private final class Cached {
