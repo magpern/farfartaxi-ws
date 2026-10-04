@@ -96,7 +96,7 @@ public class PlaceSearchService {
         try {
             found = provider.search(nq);
             outcome = found.isEmpty() ? "empty" : "ok";
-            metrics.placesCache(provider.name(), cached);
+            metrics.placesCache(provider.name(), cached, user.isTest());
         } catch (PlaceProvider.PlaceProviderException e) {
             outcome = "error";
             log.warn("Place provider {} failed: {}", provider.name(), e.getMessage());
@@ -138,7 +138,7 @@ public class PlaceSearchService {
         }
         boolean hasMore = merged.size() > limit || farHidden > 0;
         List<PlaceResult> out = merged.size() > limit ? List.copyOf(merged.subList(0, limit)) : merged;
-        metrics.placesSearch(provider.name(), outcome, System.nanoTime() - t0);
+        metrics.placesSearch(provider.name(), outcome, System.nanoTime() - t0, user.isTest());
         return new PlaceSearchResponse(out, hasMore, ctx.name());
     }
 

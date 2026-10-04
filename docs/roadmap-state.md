@@ -22,7 +22,9 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | V6 | M1 | ride model: statuses, kind, offers, availability, messages, notifications_sent, idempotency, rides.version (deployed) |
 | V7 | M3 | place_selections (learned ranking) (deployed) |
 | V8 | M4 | saved_places: provider, provider_place_id, formatted_address, kind, icon, one-HOME partial unique index (deployed) |
-| V9 | M6 | users.locale, notification_prefs |
+| V9 | M6 | users.locale, notification_prefs (deployed) |
+| V10 | M7 | live tracking: accuracy, ETA target/computed position, cancelled_at, share_revoked_at (deployed) |
+| V11 | M8 | app_events |
 
 ## Milestones
 | Milestone | Status |
@@ -36,9 +38,9 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 | M3 Search and places | **done** (v1.8.0, deployed 2026-10-03 ~22:30) |
 | M4 Places + one-tap trips | **done** (v1.9.0, deployed 2026-10-04 ~00:15) |
 | M5 Driver workflow | **done** (v1.10.0, deployed 2026-10-04 ~01:30) |
-| M6 Notifications | in progress |
-| M7 Live tracking | pending |
-| M8 Observability + ops | pending |
+| M6 Notifications | **done** (v1.11.0 + hotfix v1.11.1, gates passed 2026-10-04 ~00:45) |
+| M7 Live tracking | **done** (v1.12.0, deployed 2026-10-04 ~01:20) |
+| M8 Observability + ops | in progress |
 
 ## M0A evidence
 - Ops containment done on Pi (2026-10-03 16:42):
@@ -104,6 +106,24 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Gates: frontend 205+ tests (navigation URL building incl. iOS/iPadOS detection, Apple/Google, sms body separator), backend 148; local e2e 41 passed + 1 iOS-only skip; production Playwright 41 passed (+1 skip) incl. M5 gate (full ride via step button + Navigate/Ring only; Navigate targets pickup then destination); smoke PASS; real rides unchanged; 0 ERROR lines.
 - PRs ws #9, web #8; release `v1.10.0` backend `sha256:e3d8caaf...`, frontend `sha256:38674660...`.
 
+## M6 evidence
+- Contract `docs/m6-contract.md` (clarifications: users.locale via V9; VAPID subject https URL; app icon replaces Vite logo; no passenger push on driver return).
+- VAPID keys generated on the Pi into .env (never printed); subject `https://farfartaxi.pernemark.se`.
+- Work packages: backend Web Push (Sonnet), frontend SW/icons/onboarding (Sonnet), e2e SW gate (Sonnet). Session interrupted by a machine reboot; both in-flight workers resumed from saved transcripts, no work lost.
+- Review (Opus): CLEAN; applied: in-app notification-click routing (no reload), safe VAPID subject default + guard, send timeout cancel, ETA_5MIN reset on return, push endpoint allowlist (SSRF guard), driver-category fix, strict prefs, atomic once-only marker, Inte nu snooze, accurate status.
+- Gates: backend 164+ tests incl. RFC 8291 payload decryption (Ny resa, Accepterad, 5 min bort exactly once with ETA oscillating, Framme), prefs, locale, world isolation, 410 cleanup, rollback = no push, VAPID JWT claims; e2e SW gate in a real browser against the real built SW (synthetic PushEvent -> notification, notificationclick -> in-app route, foreign URL -> /app).
+- **Production finding (Cloudflare):** farfartaxi.pernemark.se is behind Cloudflare, which cached `sw.js` for 4 h (cf-cache-status HIT) -> PWA updates and the M6 push handler delayed. Fixed in hotfix v1.11.1: origin no-cache for sw.js/registerSW.js/manifest/app shell, immutable hashed assets; verified `cf-cache-status: BYPASS`. The already-cached copy expired 2026-10-03 22:43 UTC (no Cloudflare credentials to purge).
+- Production M6 gate after expiry: m6-push spec 6/6 on production, smoke PASS, push enabled, public key served. Two leaked fake e2e subscriptions of the test passenger removed.
+- Releases: v1.11.0 backend `sha256:e34fcca3...`, frontend `sha256:96e0654f...`; v1.11.1 backend `sha256:09d033f9...`, frontend `sha256:7ae33999...`.
+
+## M7 evidence
+- Contract `docs/m7-contract.md` (clarifications: first names only on the public share page; public base URL config; share expires at ride end + 1 h, and 12 h after start for runaway rides).
+- Work packages: backend tracking/share (Sonnet), frontend live map/share page/wake lock (Sonnet), e2e gate (Sonnet; found + fixed the retention job running without a transaction and the wake-lock hint gap).
+- Review (Opus): NOT CLEAN (B1 retention job never cleared positions in production; B2 returned rides kept the previous driver's position, visible on share page) -> fixed; plus CF-Connecting-IP rate-limit key + bounded limiter, OSRM outside the transaction, shareActive, 12 h runaway expiry, iOS-safe two-tap share (master rejected the worker's auto-created share links as a privacy issue), 60 s driver heartbeat, denied-permission guidance, wake-lock race, pinch-zoom handling, neutral stale wording.
+- Gates: backend 183 tests (Clock-controlled retention at ride end + 1 h, ETA rule, share 410/404/429, anonymized DTO), frontend 296 tests; local e2e 53 passed; production: smoke PASS (incl. no position after return), Playwright 53 passed on production incl. live tracking with emulated GPS along a route (marker latency 3-6 s), driver reload resume, ETA target switch, stale warning after 2 min, public share page logged out + 410 after revoke; real rides unchanged; 0 ERROR lines.
+- Release `v1.12.0` backend `sha256:bae62124...`, frontend `sha256:00e7e0da...`.
+
 ## Deviations
+- M6/M7: M7 development started while M6's last production gate waited ~3 h for an external Cloudflare cache TTL; M7 was not merged or deployed until M6's gates passed (single integration stream preserved).
+- M8 (planned): Grafana reads Prometheus only (no Postgres datasource) because the DB port was deliberately closed in M0A; equivalent dashboards via Micrometer metrics.
 - M0B: a real admin may delete test rides (`DELETE /api/admin/rides/{id}`); the only exception to the isolation invariant, accepted (cleanup convenience, harmless).
-- None yet.

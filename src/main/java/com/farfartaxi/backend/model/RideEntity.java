@@ -17,6 +17,7 @@ import jakarta.persistence.Version;
 import java.time.Instant;
 
 @Entity
+@org.hibernate.annotations.DynamicUpdate
 @Table(name = "rides", uniqueConstraints = @UniqueConstraint(columnNames = {"passenger_id", "client_request_id"}))
 public class RideEntity {
     @Id

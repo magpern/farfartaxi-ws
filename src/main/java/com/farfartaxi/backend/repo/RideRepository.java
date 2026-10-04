@@ -45,6 +45,44 @@ public interface RideRepository extends JpaRepository<RideEntity, Long> {
 
     Optional<RideEntity> findByShareToken(String shareToken);
 
+    /**
+     * Position-only write for driver location posts. Deliberately NOT versioned: GPS updates must not invalidate a
+     * concurrent state transition's optimistic lock. Guarded by status and assigned driver (0 rows = no longer valid).
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+        update RideEntity r set r.lastDriverLat = :lat, r.lastDriverLon = :lon, r.lastLocationAccuracyM = :acc,
+            r.lastLocationAt = :at
+        where r.id = :id and r.acceptedByDriver.id = :driverId
+          and r.status in (com.farfartaxi.backend.model.RideStatus.EN_ROUTE, com.farfartaxi.backend.model.RideStatus.ARRIVED,
+            com.farfartaxi.backend.model.RideStatus.PICKED_UP)
+        """)
+    int updatePosition(@org.springframework.data.repository.query.Param("id") Long id,
+        @org.springframework.data.repository.query.Param("driverId") Long driverId,
+        @org.springframework.data.repository.query.Param("lat") Double lat,
+        @org.springframework.data.repository.query.Param("lon") Double lon,
+        @org.springframework.data.repository.query.Param("acc") Double acc,
+        @org.springframework.data.repository.query.Param("at") Instant at);
+
+    /** As {@link #updatePosition} plus the recomputed ETA fields (still unversioned). */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+        update RideEntity r set r.lastDriverLat = :lat, r.lastDriverLon = :lon, r.lastLocationAccuracyM = :acc,
+            r.lastLocationAt = :at, r.etaMinutes = :etaMin, r.etaTarget = :etaTarget, r.etaComputedAt = :at,
+            r.etaLat = :lat, r.etaLon = :lon
+        where r.id = :id and r.acceptedByDriver.id = :driverId
+          and r.status in (com.farfartaxi.backend.model.RideStatus.EN_ROUTE, com.farfartaxi.backend.model.RideStatus.ARRIVED,
+            com.farfartaxi.backend.model.RideStatus.PICKED_UP)
+        """)
+    int updatePositionAndEta(@org.springframework.data.repository.query.Param("id") Long id,
+        @org.springframework.data.repository.query.Param("driverId") Long driverId,
+        @org.springframework.data.repository.query.Param("lat") Double lat,
+        @org.springframework.data.repository.query.Param("lon") Double lon,
+        @org.springframework.data.repository.query.Param("acc") Double acc,
+        @org.springframework.data.repository.query.Param("at") Instant at,
+        @org.springframework.data.repository.query.Param("etaMin") Integer etaMin,
+        @org.springframework.data.repository.query.Param("etaTarget") String etaTarget);
+
     @Modifying
     @Query("update RideEntity r set r.refusalDriver = null where r.refusalDriver.id = :userId")
     void clearRefusalDriver(@org.springframework.data.repository.query.Param("userId") Long userId);

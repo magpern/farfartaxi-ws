@@ -22,21 +22,21 @@ public class ReverseGeocodeService {
     }
 
     /** @return empty when Nominatim has no address there; also on upstream failure (never 502); 429 AppException when over the rate budget */
-    public Optional<PlaceResult> reverse(double lat, double lon) {
+    public Optional<PlaceResult> reverse(double lat, double lon, boolean test) {
         long t0 = System.nanoTime();
         String body;
         try {
             body = nominatim.reverse(lat, lon);
         } catch (AppException e) {
-            metrics.placesReverse("rate_limited", System.nanoTime() - t0);
+            metrics.placesReverse("rate_limited", System.nanoTime() - t0, test);
             throw e;
         }
         if (body == null) {
-            metrics.placesReverse("error", System.nanoTime() - t0);
+            metrics.placesReverse("error", System.nanoTime() - t0, test);
             return Optional.empty(); // upstream trouble is not "our backend is down": 204, the client just has no label
         }
         Optional<PlaceResult> result = map(body, lat, lon);
-        metrics.placesReverse(result.isPresent() ? "ok" : "empty", System.nanoTime() - t0);
+        metrics.placesReverse(result.isPresent() ? "ok" : "empty", System.nanoTime() - t0, test);
         return result;
     }
 

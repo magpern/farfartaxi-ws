@@ -63,8 +63,8 @@ public class PlacesController {
 
     @GetMapping("/nearest-stop")
     public ResponseEntity<NearestStopResponse> nearestStop(@RequestParam double lat, @RequestParam double lon) {
-        currentUser.requireUser();
-        return nearestStops.nearest(lat, lon).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+        boolean test = currentUser.requireUser().isTest();
+        return nearestStops.nearest(lat, lon, test).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @PostMapping("/selections")
@@ -75,7 +75,7 @@ public class PlacesController {
 
     @GetMapping("/reverse")
     public ResponseEntity<PlaceResult> reverse(@RequestParam double lat, @RequestParam double lon) {
-        currentUser.requireUser();
-        return reverse.reverse(lat, lon).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+        boolean test = currentUser.requireUser().isTest();
+        return reverse.reverse(lat, lon, test).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 }

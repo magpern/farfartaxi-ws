@@ -79,6 +79,7 @@ public class RideService {
     private final org.springframework.transaction.support.TransactionTemplate freshTx;
     private final org.springframework.transaction.support.TransactionTemplate writeTx;
     private final Clock clock;
+    private final com.farfartaxi.backend.observability.AppMetrics metrics;
     private final double defaultEtaKmh;
     private final String publicBaseUrl;
 
@@ -103,6 +104,7 @@ public class RideService {
         RideResponseFactory responses,
         org.springframework.transaction.support.TransactionTemplate txTemplate,
         Clock clock,
+        com.farfartaxi.backend.observability.AppMetrics metrics,
         @Value("${app.eta.default-kmh}") double defaultEtaKmh,
         @Value("${app.public-base-url:https://farfartaxi.pernemark.se}") String publicBaseUrl
     ) {
@@ -131,6 +133,7 @@ public class RideService {
         this.writeTx = new org.springframework.transaction.support.TransactionTemplate(txTemplate.getTransactionManager());
         this.writeTx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
+        this.metrics = metrics;
         this.defaultEtaKmh = defaultEtaKmh;
     }
 
@@ -527,6 +530,9 @@ public class RideService {
         }
         notificationRepository.deleteByRideIdAndKind(rideId, RideTimerService.DRIVER_REMINDER_30M); // new driver gets their own reminder
         events.record(ride, driver.getId(), RideEventRecorder.ACCEPTED);
+        if (ride.getRequestedAt() != null) {
+            metrics.rideTimeToAccept(java.time.Duration.between(ride.getRequestedAt(), clock.instant()), ride.isTest(), ride.getKind() == null ? null : ride.getKind().name());
+        }
         pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, "ACCEPTED", rideId,
             "/app/resa/" + rideId, "ride.accepted", java.util.List.of(PushArgs.firstName(driver.getFullName())));
         responses.publish(ride);
@@ -635,6 +641,9 @@ public class RideService {
         mutate.accept(ride);
         ride = rideRepository.save(ride);
         events.record(ride, driver.getId(), eventType);
+        if (to == RideStatus.PICKED_UP && ride.getArrivedAt() != null && ride.getPickedUpAt() != null) {
+            metrics.ridePickupWait(java.time.Duration.between(ride.getArrivedAt(), ride.getPickedUpAt()), ride.isTest());
+        }
         if (pushKind != null && (!once || markNotificationSent(ride.getId(), pushKind))) {
             pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, pushKind, ride.getId(),
                 "/app/resa/" + ride.getId(), pushKey, java.util.List.of(PushArgs.firstName(driver.getFullName())));
@@ -695,11 +704,8 @@ public class RideService {
         UserEntity driver = currentUserService.requireUser();
         RideEntity ride = loadForLocation(rideId, driver);
         RideStatus st = ride.getStatus();
-        ride.setLastDriverLat(request.lat());
-        ride.setLastDriverLon(request.lon());
-        ride.setLastLocationAccuracyM(request.accuracy());
-        ride.setLastLocationAt(now);
         String target = etaTargetIfRecompute(ride, request.lat(), request.lon(), now);
+        int updated;
         if (target != null) {
             double[] dest = etaDestination(ride, target);
             Double seconds;
@@ -708,14 +714,19 @@ public class RideService {
             } else {
                 seconds = routes.drivingSeconds(request.lat(), request.lon(), dest[0], dest[1]); // rare race: state changed meanwhile
             }
-            ride.setEtaMinutes(seconds != null ? Math.max(1, (int) Math.round(seconds / 60.0))
-                : calculateEtaMinutes(request.lat(), request.lon(), dest[0], dest[1]));
-            ride.setEtaTarget(target);
-            ride.setEtaComputedAt(now);
-            ride.setEtaLat(request.lat());
-            ride.setEtaLon(request.lon());
+            int etaMinutes = seconds != null ? Math.max(1, (int) Math.round(seconds / 60.0))
+                : calculateEtaMinutes(request.lat(), request.lon(), dest[0], dest[1]);
+            updated = rideRepository.updatePositionAndEta(rideId, driver.getId(), request.lat(), request.lon(),
+                request.accuracy(), now, etaMinutes, target);
+        } else {
+            updated = rideRepository.updatePosition(rideId, driver.getId(), request.lat(), request.lon(),
+                request.accuracy(), now);
         }
-        ride = rideRepository.save(ride);
+        if (updated == 0) {
+            throw AppException.conflict("INVALID_TRANSITION", "Platsuppdatering kan bara skickas under körning");
+        }
+        // Unversioned bulk update: re-read so the response and ETA push see the persisted values.
+        ride = mustFindRide(rideId, driver);
         if (st == RideStatus.EN_ROUTE && ride.getEtaMinutes() != null && ride.getEtaMinutes() <= ETA_PUSH_MINUTES
             && markNotificationSent(rideId, "ETA_5MIN")) {
             pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, "ETA_5MIN", rideId,

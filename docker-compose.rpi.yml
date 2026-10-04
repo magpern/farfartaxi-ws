@@ -27,7 +27,11 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-https://farfartaxi.pernemark.se}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # /actuator/prometheus on the management port requires basic auth (user "prometheus"); health stays open
+      MANAGEMENT_PROMETHEUS_PASSWORD: ${MANAGEMENT_PROMETHEUS_PASSWORD:?required}
     ports:
+      # Management port (Prometheus scrape): bind to the host's LAN address only (MANAGEMENT_BIND), never 0.0.0.0.
+      - "${MANAGEMENT_BIND:-127.0.0.1}:8090:8090"
       # Loopback only; the reverse proxy / frontend container reaches the backend on the Docker network.
       - "127.0.0.1:${BACKEND_HOST_PORT:-8081}:8080"
     depends_on:

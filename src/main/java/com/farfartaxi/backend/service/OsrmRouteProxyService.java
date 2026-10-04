@@ -73,7 +73,7 @@ public class OsrmRouteProxyService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            log.warn("OSRM quick request failed: {}", e.toString());
+            log.warn("OSRM quick request failed: {}", e.getClass().getSimpleName());
         }
         metrics.route(result == null ? "error" : "ok", System.nanoTime() - t0);
         return result;
@@ -137,21 +137,21 @@ public class OsrmRouteProxyService {
                 HttpResponse<byte[]> response =
                         httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    log.warn("OSRM HTTP {} for {}", response.statusCode(), pathAndQuery);
+                    log.warn("OSRM HTTP {}", response.statusCode());
                     return null;
                 }
                 byte[] body = response.body();
                 if (body == null || body.length == 0) {
-                    log.warn("OSRM empty body for {}", pathAndQuery);
+                    log.warn("OSRM empty body");
                     return null;
                 }
                 return new String(body, StandardCharsets.UTF_8);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.warn("OSRM interrupted for {}", pathAndQuery);
+                log.warn("OSRM interrupted");
                 return null;
             } catch (Exception e) {
-                log.warn("OSRM request failed for {}: {}", pathAndQuery, e.toString());
+                log.warn("OSRM request failed: {}", e.getClass().getSimpleName());
                 return null;
             } finally {
                 nextAllowedAtMillis = System.currentTimeMillis() + minIntervalMillis;
