@@ -202,8 +202,7 @@ class TelemetryIntegrationTest extends M1TestSupport {
     }
 
     private long timerCount(String name) {
-        Timer t = registry.find(name).tag("world", "real").timer();
-        return t == null ? 0 : t.count();
+        return registry.find(name).tag("world", "real").timers().stream().mapToLong(Timer::count).sum();
     }
 
     @Test

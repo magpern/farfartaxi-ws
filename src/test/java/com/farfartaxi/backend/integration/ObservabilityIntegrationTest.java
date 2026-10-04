@@ -105,8 +105,8 @@ class ObservabilityIntegrationTest {
         metrics.appEvent("booking_created", false);
         String body = getAuth("http://localhost:" + mgmtPort + "/actuator/prometheus", "prometheus", "scrape-secret-123").body();
         assertThat(body)
-            .contains("farfartaxi_ride_time_to_accept_seconds_bucket{world=\"real\",le=\"")
-            .contains("farfartaxi_ride_time_to_accept_seconds_count{world=\"real\"}")
+            .contains("farfartaxi_ride_time_to_accept_seconds_bucket{kind=\"unknown\",world=\"real\",le=\"")
+            .contains("farfartaxi_ride_time_to_accept_seconds_count{kind=\"unknown\",world=\"real\"}")
             .contains("farfartaxi_ride_pickup_wait_seconds_bucket{world=\"real\",le=\"")
             .contains("farfartaxi_ride_no_driver_total{world=\"real\"}")
             .contains("farfartaxi_push_subscriptions{world=\"real\"}")
