@@ -44,7 +44,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (name) (increase(farfartaxi_app_events_total{name=~\"booking_started|booking_created\",world=\"real\"}[$__range]))",
+          "expr": "sum by (name) (increase(farfartaxi_app_events_total{name=~\"booking_started|booking_created\",world=\"$world\"}[$__range]))",
           "legendFormat": "{{name}}",
           "datasource": {
             "type": "prometheus",
@@ -88,7 +88,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (type) (increase(farfartaxi_ride_transitions_total{type=~\"BOOKED|ACCEPTED|COMPLETED|CANCELLED|NO_DRIVER\",world=\"real\"}[$__range]))",
+          "expr": "sum by (type) (increase(farfartaxi_ride_transitions_total{type=~\"BOOKED|ACCEPTED|COMPLETED|CANCELLED|NO_DRIVER\",world=\"$world\"}[$__range]))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -298,7 +298,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(farfartaxi_ride_time_to_accept_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(farfartaxi_ride_time_to_accept_seconds_bucket{world=\"$world\",kind=\"NOW\"}[$__range])))",
           "legendFormat": "p50",
           "datasource": {
             "type": "prometheus",
@@ -307,7 +307,7 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(farfartaxi_ride_time_to_accept_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(farfartaxi_ride_time_to_accept_seconds_bucket{world=\"$world\",kind=\"NOW\"}[$__range])))",
           "legendFormat": "p95",
           "datasource": {
             "type": "prometheus",
@@ -342,7 +342,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(farfartaxi_ride_pickup_wait_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(farfartaxi_ride_pickup_wait_seconds_bucket{world=\"$world\"}[$__range])))",
           "legendFormat": "p50",
           "datasource": {
             "type": "prometheus",
@@ -351,7 +351,7 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(farfartaxi_ride_pickup_wait_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(farfartaxi_ride_pickup_wait_seconds_bucket{world=\"$world\"}[$__range])))",
           "legendFormat": "p95",
           "datasource": {
             "type": "prometheus",
@@ -386,7 +386,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(farfartaxi_ride_no_driver_total{world=\"real\"}[$__range]))",
+          "expr": "sum(increase(farfartaxi_ride_no_driver_total{world=\"$world\"}[$__range]))",
           "legendFormat": "no driver",
           "datasource": {
             "type": "prometheus",
@@ -442,7 +442,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(farfartaxi_push_subscriptions{world=\"real\"})",
+          "expr": "sum(farfartaxi_push_subscriptions{world=\"$world\"})",
           "legendFormat": "subscriptions",
           "datasource": {
             "type": "prometheus",
@@ -519,7 +519,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (name) (increase(farfartaxi_app_events_total{name=~\"push_permission|push_opened\",world=\"real\"}[$__range]))",
+          "expr": "sum by (name) (increase(farfartaxi_app_events_total{name=~\"push_permission|push_opened\",world=\"$world\"}[$__range]))",
           "legendFormat": "{{name}}",
           "datasource": {
             "type": "prometheus",
@@ -611,7 +611,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(farfartaxi_app_events_total{name=\"frontend_error\",world=\"real\"}[$__range]))",
+          "expr": "sum(increase(farfartaxi_app_events_total{name=\"frontend_error\",world=\"$world\"}[$__range]))",
           "legendFormat": "frontend_error",
           "datasource": {
             "type": "prometheus",
@@ -767,5 +767,32 @@
       },
       "options": {}
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "world",
+        "label": "Värld",
+        "type": "custom",
+        "query": "real,test",
+        "current": {
+          "text": "real",
+          "value": "real"
+        },
+        "options": [
+          {
+            "text": "real",
+            "value": "real",
+            "selected": true
+          },
+          {
+            "text": "test",
+            "value": "test",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  }
 }

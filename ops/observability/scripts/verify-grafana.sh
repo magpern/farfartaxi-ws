@@ -27,9 +27,9 @@ while IFS= read -r line; do
   title="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["title"])' "$line")"
   opt="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["optional"])' "$line")"
   body="$(python3 -c '
-import json,sys
+import json,sys,os
 p=json.loads(sys.argv[1])
-print(json.dumps({"from":"now-1h","to":"now","queries":[{"refId":"A","datasource":{"type":"prometheus","uid":"prometheus"},"expr":p["expr"],"range":True,"instant":False,"intervalMs":30000,"maxDataPoints":100}]}))' "$line")"
+print(json.dumps({"from":"now-"+os.environ.get("RANGE","1h"),"to":"now","queries":[{"refId":"A","datasource":{"type":"prometheus","uid":"prometheus"},"expr":p["expr"].replace("$world", os.environ.get("WORLD","real")).replace("$__range", os.environ.get("RANGE","1h")),"range":True,"instant":False,"intervalMs":30000,"maxDataPoints":100}]}))' "$line")"
   n="$(printf '%s' "$body" | api -X POST -H 'Content-Type: application/json' --data-binary @- "$GRAFANA_URL/api/ds/query" \
       | python3 -c 'import json,sys;r=json.load(sys.stdin)["results"]["A"];print(len(r.get("frames",[])))')"
   if [ "$n" -ge 1 ]; then echo "OK    $title: $n series"

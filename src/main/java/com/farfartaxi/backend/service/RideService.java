@@ -531,7 +531,7 @@ public class RideService {
         notificationRepository.deleteByRideIdAndKind(rideId, RideTimerService.DRIVER_REMINDER_30M); // new driver gets their own reminder
         events.record(ride, driver.getId(), RideEventRecorder.ACCEPTED);
         if (ride.getRequestedAt() != null) {
-            metrics.rideTimeToAccept(java.time.Duration.between(ride.getRequestedAt(), clock.instant()), ride.isTest());
+            metrics.rideTimeToAccept(java.time.Duration.between(ride.getRequestedAt(), clock.instant()), ride.isTest(), ride.getKind() == null ? null : ride.getKind().name());
         }
         pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, "ACCEPTED", rideId,
             "/app/resa/" + rideId, "ride.accepted", java.util.List.of(PushArgs.firstName(driver.getFullName())));

@@ -24,9 +24,16 @@ public class AppMetrics {
         return test ? "test" : "real";
     }
 
-    /** REQUESTED to ACCEPTED, per acceptance. */
+    /** REQUESTED to ACCEPTED, per acceptance. {@code kind} NOW|SCHEDULED (scheduled rides measure from booking time). */
+    public void rideTimeToAccept(Duration d, boolean test, String kind) {
+        Timer.builder("farfartaxi.ride.time_to_accept").tag("world", world(test)).tag("kind", kind == null ? "unknown" : kind)
+            .publishPercentileHistogram()
+            .minimumExpectedValue(Duration.ofSeconds(1)).maximumExpectedValue(Duration.ofHours(6))
+            .register(registry).record(nonNegative(d));
+    }
+
     public void rideTimeToAccept(Duration d, boolean test) {
-        waitTimer("farfartaxi.ride.time_to_accept", test).record(nonNegative(d));
+        rideTimeToAccept(d, test, "unknown");
     }
 
     /** ARRIVED to PICKED_UP. */
