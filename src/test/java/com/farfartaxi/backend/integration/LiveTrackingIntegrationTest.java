@@ -438,4 +438,94 @@ class LiveTrackingIntegrationTest extends M1TestSupport {
         u.setFullName(name);
         users.save(u);
     }
+
+    // ------------------------------------------------------------------ location vs transition concurrency
+
+    @Autowired org.springframework.transaction.PlatformTransactionManager txm;
+
+    /** Loads the ride in a transaction, lets a location post commit meanwhile, then applies the transition and commits. */
+    private void staleTransition(long id, com.farfartaxi.backend.model.RideStatus to, double lat, double lon) {
+        new org.springframework.transaction.support.TransactionTemplate(txm).executeWithoutResult(t -> {
+            var ride = rideRepo.findById(id).orElseThrow();
+            try {
+                loc(id, lat, lon);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+            ride.setStatus(to);
+            if (to == com.farfartaxi.backend.model.RideStatus.ARRIVED) {
+                ride.setArrivedAt(clock.instant());
+            } else {
+                ride.setPickedUpAt(clock.instant());
+            }
+        });
+    }
+
+    @Test
+    void locationCommittedAfterTransitionLoadDoesNotBreakTheTransitionAndIsPreserved() throws Exception {
+        long id = rideInProgress("start");
+        staleTransition(id, com.farfartaxi.backend.model.RideStatus.ARRIVED, 59.4, 18.1);
+        var e = rideRepo.findById(id).orElseThrow();
+        assertThat(e.getStatus()).isEqualTo(com.farfartaxi.backend.model.RideStatus.ARRIVED);
+        assertThat(e.getLastDriverLat()).isEqualTo(59.4);
+        assertThat(e.getLastDriverLon()).isEqualTo(18.1);
+        assertThat(e.getLastLocationAccuracyM()).isEqualTo(12.5);
+        // and a real HTTP arrive-style step right after a location post is fine
+        loc(id, 59.41, 18.11);
+        drive(d1, id, "pickup");
+        assertThat(rideRepo.findById(id).orElseThrow().getLastDriverLat()).isEqualTo(59.41);
+    }
+
+    @Test
+    void repeatedLocationTransitionInterleavingNeverConflicts() throws Exception {
+        for (int i = 0; i < 10; i++) {
+            long id = bookAt(BASE.plus(Duration.ofDays(20 + i)));
+            acceptOk(d1, id);
+            drive(d1, id, "start");
+            staleTransition(id, com.farfartaxi.backend.model.RideStatus.ARRIVED, 59.5 + i / 100.0, 18.0);
+            staleTransition(id, com.farfartaxi.backend.model.RideStatus.PICKED_UP, 59.6 + i / 100.0, 18.0);
+            assertThat(rideRepo.findById(id).orElseThrow().getLastDriverLat()).isEqualTo(59.6 + i / 100.0);
+            // HTTP completion while a poster thread keeps sending locations
+            var stop = new java.util.concurrent.atomic.AtomicBoolean();
+            var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+            Thread poster = new Thread(() -> {
+                try {
+                    while (!stop.get()) {
+                        call("POST", "/api/driver/rides/" + id + "/location", d1,
+                            Map.of("lat", 59.7, "lon", 18.2, "accuracy", 5.0), null);
+                    }
+                } catch (Throwable t) {
+                    failure.set(t);
+                }
+            });
+            poster.start();
+            try {
+                drive(d1, id, "complete");
+            } finally {
+                stop.set(true);
+                poster.join();
+            }
+            assertThat(failure.get()).isNull();
+            assertThat(status(id)).isEqualTo("COMPLETED");
+        }
+    }
+
+    @Test
+    void locationAfterCompletedOrReturnedIsRejectedAndWritesNothing() throws Exception {
+        long id = rideInProgress("pickup");
+        loc(id, 59.31, 18.05);
+        drive(d1, id, "complete");
+        var before = rideRepo.findById(id).orElseThrow();
+        long version = before.getVersion();
+        Double lat = before.getLastDriverLat();
+        call("POST", "/api/driver/rides/" + id + "/location", d1, Map.of("lat", 1.0, "lon", 2.0, "accuracy", 3.0), 409);
+        var after = rideRepo.findById(id).orElseThrow();
+        assertThat(after.getLastDriverLat()).isEqualTo(lat);
+        assertThat(after.getVersion()).isEqualTo(version);
+
+        long id2 = rideInProgress("start");
+        call("POST", "/api/driver/rides/" + id2 + "/return", d1, Map.of("reason", "x"), 200);
+        call("POST", "/api/driver/rides/" + id2 + "/location", d1, Map.of("lat", 1.0, "lon", 2.0, "accuracy", 3.0), null);
+        assertThat(rideRepo.findById(id2).orElseThrow().getLastDriverLat()).isNull();
+    }
 }

@@ -704,11 +704,8 @@ public class RideService {
         UserEntity driver = currentUserService.requireUser();
         RideEntity ride = loadForLocation(rideId, driver);
         RideStatus st = ride.getStatus();
-        ride.setLastDriverLat(request.lat());
-        ride.setLastDriverLon(request.lon());
-        ride.setLastLocationAccuracyM(request.accuracy());
-        ride.setLastLocationAt(now);
         String target = etaTargetIfRecompute(ride, request.lat(), request.lon(), now);
+        int updated;
         if (target != null) {
             double[] dest = etaDestination(ride, target);
             Double seconds;
@@ -717,14 +714,19 @@ public class RideService {
             } else {
                 seconds = routes.drivingSeconds(request.lat(), request.lon(), dest[0], dest[1]); // rare race: state changed meanwhile
             }
-            ride.setEtaMinutes(seconds != null ? Math.max(1, (int) Math.round(seconds / 60.0))
-                : calculateEtaMinutes(request.lat(), request.lon(), dest[0], dest[1]));
-            ride.setEtaTarget(target);
-            ride.setEtaComputedAt(now);
-            ride.setEtaLat(request.lat());
-            ride.setEtaLon(request.lon());
+            int etaMinutes = seconds != null ? Math.max(1, (int) Math.round(seconds / 60.0))
+                : calculateEtaMinutes(request.lat(), request.lon(), dest[0], dest[1]);
+            updated = rideRepository.updatePositionAndEta(rideId, driver.getId(), request.lat(), request.lon(),
+                request.accuracy(), now, etaMinutes, target);
+        } else {
+            updated = rideRepository.updatePosition(rideId, driver.getId(), request.lat(), request.lon(),
+                request.accuracy(), now);
         }
-        ride = rideRepository.save(ride);
+        if (updated == 0) {
+            throw AppException.conflict("INVALID_TRANSITION", "Platsuppdatering kan bara skickas under körning");
+        }
+        // Unversioned bulk update: re-read so the response and ETA push see the persisted values.
+        ride = mustFindRide(rideId, driver);
         if (st == RideStatus.EN_ROUTE && ride.getEtaMinutes() != null && ride.getEtaMinutes() <= ETA_PUSH_MINUTES
             && markNotificationSent(rideId, "ETA_5MIN")) {
             pushService.send(ride.getPassenger().getId(), PushCategory.RIDE_UPDATES, "ETA_5MIN", rideId,
