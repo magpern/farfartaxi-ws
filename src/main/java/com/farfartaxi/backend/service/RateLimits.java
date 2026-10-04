@@ -25,7 +25,7 @@ public class RateLimits {
         @Value("${app.ratelimit.user-route-per-minute:60}") int userRoutePerMin,
         @Value("${app.ratelimit.telemetry-requests-per-hour:120}") int telemetryPerHour,
         @Value("${app.ratelimit.auth.register-per-hour:5}") int registerPerHour,
-        @Value("${app.ratelimit.auth.login-per-15min:60}") int loginPer15,
+        @Value("${app.ratelimit.auth.login-per-15min:300}") int loginPer15,
         @Value("${app.ratelimit.auth.login-failed-per-email-15min:10}") int loginFailPer15,
         @Value("${app.ratelimit.auth.google-per-15min:30}") int googlePer15,
         @Value("${app.ratelimit.auth.forgot-per-hour:5}") int forgotPerHour
