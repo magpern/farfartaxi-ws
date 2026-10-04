@@ -227,4 +227,13 @@ req GET "/api/rides/$RID2" "$PTOKEN"; expect "passenger ride 2 after return" 200
 ok "no driver position on the passenger ride after return"
 req POST "/api/rides/$RID2/cancel" "$PTOKEN" '{"reason":"smoke cleanup","confirm":true}'; ok "ride 2 cleaned up (cancel -> HTTP $CODE)"
 
+# M8: telemetry ingestion (allowlisted event accepted; coordinate-like props rejected; unknown names dropped)
+req POST /api/telemetry/events "$PTOKEN" '{"sessionId":"smoke","events":[{"name":"search_started","props":{"queryLength":4}},{"name":"search_started","props":{"queryLength":4,"lat":59.42351}},{"name":"not_an_event","props":{}}]}'
+expect "telemetry" 200
+[ "$(jget 'd["accepted"]')" = "1" ] || fail "telemetry: expected 1 accepted, got $BODY_OUT"
+[ "$(jget 'd["dropped"]')" = "2" ] || fail "telemetry: expected 2 dropped, got $BODY_OUT"
+req POST /api/telemetry/events "" '{"events":[]}'
+[ "$CODE" = "401" ] || [ "$CODE" = "403" ] || fail "telemetry without token: expected 401/403, got $CODE"
+ok "telemetry: allowlisted event accepted, PII/unknown dropped, auth required"
+
 echo "SMOKE PASS ($BASE, version=$VERSION)"
