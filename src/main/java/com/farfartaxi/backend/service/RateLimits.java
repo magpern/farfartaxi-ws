@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 /** All the request limiters beyond the share-view one. Limits are configurable (e2e raises the auth ones). */
 @Component
 public class RateLimits {
-    private static final int MAX = 10_000;
+    private static final int MAX = 100_000;
 
     private final FixedWindowLimiter shareRoute;
     private final FixedWindowLimiter userRoute;
@@ -23,12 +23,12 @@ public class RateLimits {
         Clock clock,
         @Value("${app.ratelimit.share-route-per-minute:30}") int shareRoutePerMin,
         @Value("${app.ratelimit.user-route-per-minute:60}") int userRoutePerMin,
-        @Value("${app.ratelimit.telemetry-requests-per-hour:120}") int telemetryPerHour,
-        @Value("${app.ratelimit.auth.register-per-hour:5}") int registerPerHour,
+        @Value("${app.ratelimit.telemetry-requests-per-hour:300}") int telemetryPerHour,
+        @Value("${app.ratelimit.auth.register-per-hour:20}") int registerPerHour,
         @Value("${app.ratelimit.auth.login-per-15min:300}") int loginPer15,
         @Value("${app.ratelimit.auth.login-failed-per-email-15min:10}") int loginFailPer15,
         @Value("${app.ratelimit.auth.google-per-15min:30}") int googlePer15,
-        @Value("${app.ratelimit.auth.forgot-per-hour:5}") int forgotPerHour
+        @Value("${app.ratelimit.auth.forgot-per-hour:20}") int forgotPerHour
     ) {
         Duration minute = Duration.ofMinutes(1);
         Duration quarter = Duration.ofMinutes(15);

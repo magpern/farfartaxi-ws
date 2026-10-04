@@ -10,9 +10,12 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** Authenticated and share-scoped OSRM proxy (the anonymous /api/public/route/driving is gone). */
 class RouteProxyIntegrationTest extends M1TestSupport {
+    @Autowired com.farfartaxi.backend.service.RouteLookupService lookup;
+
     private static final String OSRM = "{\"routes\":[{\"distance\":1234.5,\"duration\":99,\"geometry\":{\"type\":\"LineString\",\"coordinates\":[[18.0686,59.3293],[18.07,59.334]]}}]}";
     private static int ipSeq;
 
@@ -62,9 +65,9 @@ class RouteProxyIntegrationTest extends M1TestSupport {
     }
 
     @Test
-    void osrmFailureIs502AndNotCached() throws Exception {
+    void osrmFailureIs200UnavailableAndNotCached() throws Exception {
         when(osrm.drivingRouteGeometry(anyDouble(), anyDouble(), anyDouble(), anyDouble(), any())).thenReturn(null);
-        call("GET", "/api/route/driving" + q(60.1, 15.1, 60.2, 15.2), p1, null, 502);
+        assertThat(call("GET", "/api/route/driving" + q(60.1, 15.1, 60.2, 15.2), p1, null, 200).code()).isEqualTo("Unavailable");
         stubOsrm();
         call("GET", "/api/route/driving" + q(60.1, 15.1, 60.2, 15.2), p1, null, 200);
     }
@@ -100,6 +103,15 @@ class RouteProxyIntegrationTest extends M1TestSupport {
         // an expired link (ride ended > 1 h ago is covered by the share view; here: a fresh token after the ride was cancelled and aged out)
         String token2 = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
         call("GET", "/api/public/share/" + token2 + "/route", null, null, 200, "X-Forwarded-For", xff);
+    }
+
+    @Test
+    void shareRouteOsrmFailureIs200Unavailable() throws Exception {
+        ((com.github.benmanes.caffeine.cache.Cache<?, ?>) org.springframework.test.util.ReflectionTestUtils.getField(lookup, "cache")).invalidateAll();
+        when(osrm.drivingRouteGeometry(anyDouble(), anyDouble(), anyDouble(), anyDouble(), any())).thenReturn(null);
+        long id = bookAt(BASE.plus(Duration.ofDays(7)));
+        String token = call("POST", "/api/rides/" + id + "/share", p1, null, 200).body().get("token").asText();
+        assertThat(call("GET", "/api/public/share/" + token + "/route", null, null, 200, "X-Forwarded-For", ip()).code()).isEqualTo("Unavailable");
     }
 
     @Test

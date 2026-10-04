@@ -210,7 +210,7 @@ class TelemetryIntegrationTest extends M1TestSupport {
     @Test
     void telemetryRequestsArePerUserLimited() throws Exception {
         String t = account("tel-req@test.local", false);
-        for (int i = 0; i < 120; i++) {
+        for (int i = 0; i < 300; i++) {
             post(t, List.of(), 200);
         }
         Resp r = post(t, List.of(), 429);

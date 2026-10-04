@@ -2,11 +2,10 @@ package com.farfartaxi.backend.service;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Fixed-window counter per key with bounded memory (expired windows are purged, then a hard cap resets everything). */
+/** Fixed-window counter per key with bounded memory (expired windows are purged, then, when still full, requests with new keys are limited (fail closed) while existing keys keep their counts). */
 public final class FixedWindowLimiter {
     private static final int MAX_KEY_LENGTH = 254;
 
@@ -40,24 +39,22 @@ public final class FixedWindowLimiter {
         return s.length() > MAX_KEY_LENGTH ? s.substring(0, MAX_KEY_LENGTH) : s;
     }
 
-    private void makeRoom(String key, long idx) {
-        if (windows.size() >= maxEntries && !windows.containsKey(key)) {
-            for (Iterator<Window> it = windows.values().iterator(); it.hasNext(); ) {
-                if (it.next().index() < idx) {
-                    it.remove();
-                }
-            }
-            if (windows.size() >= maxEntries) {
-                windows.clear();
-            }
+    /** @return true when the key can be tracked: it exists, or there is room after purging expired windows. */
+    private boolean hasRoom(String key, long idx) {
+        if (windows.size() < maxEntries || windows.containsKey(key)) {
+            return true;
         }
+        windows.values().removeIf(w -> w.index() < idx);
+        return windows.size() < maxEntries;
     }
 
     /** Counts one hit unless the window is full. @return 0 when allowed, else the Retry-After seconds. */
     public long acquire(String rawKey) {
         String key = key(rawKey);
         long idx = index();
-        makeRoom(key, idx);
+        if (!hasRoom(key, idx)) {
+            return retryAfter(); // full of live windows: new keys fail closed
+        }
         boolean[] allowed = {false};
         windows.compute(key, (k, w) -> {
             Window cur = w == null || w.index() != idx ? new Window(idx, 0) : w;
@@ -80,7 +77,9 @@ public final class FixedWindowLimiter {
     public void hit(String rawKey) {
         String key = key(rawKey);
         long idx = index();
-        makeRoom(key, idx);
+        if (!hasRoom(key, idx)) {
+            return;
+        }
         windows.compute(key, (k, w) -> {
             Window cur = w == null || w.index() != idx ? new Window(idx, 0) : w;
             return new Window(idx, Math.min(limit, cur.count() + 1));

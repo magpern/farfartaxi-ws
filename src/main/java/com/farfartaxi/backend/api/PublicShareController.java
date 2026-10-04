@@ -38,7 +38,7 @@ public class PublicShareController {
     @GetMapping("/{token}")
     public ResponseEntity<PublicShareResponse> view(@PathVariable String token, HttpServletRequest request) {
         if (!limiter.tryAcquire(clientIp.of(request))) {
-            throw new AppException(HttpStatus.TOO_MANY_REQUESTS, "Too many requests");
+            throw new com.farfartaxi.backend.service.RateLimitedException(limiter.retryAfterSeconds());
         }
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(rideService.publicShare(token));
     }

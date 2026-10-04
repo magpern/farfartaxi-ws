@@ -18,6 +18,7 @@ public class RouteLookupService {
     static final double MAX_LAT = 69.5;
     static final double MIN_LON = 10.5;
     static final double MAX_LON = 24.5;
+    static final String UNAVAILABLE_BODY = "{\"code\":\"Unavailable\"}";
     private static final Duration TIMEOUT = Duration.ofSeconds(3);
 
     private final OsrmRouteProxyService osrm;
@@ -28,7 +29,7 @@ public class RouteLookupService {
         this.osrm = osrm;
     }
 
-    /** @return the OSRM JSON body; throws 400 for bad coordinates and 502 when OSRM is unavailable (never cached). */
+    /** @return the OSRM JSON body; throws 400 for bad coordinates; when OSRM is unavailable returns {@code {"code":"Unavailable"}} with HTTP 200 (never cached). */
     public String driving(double fromLat, double fromLon, double toLat, double toLon) {
         validate(fromLat, fromLon);
         validate(toLat, toLon);
@@ -39,7 +40,7 @@ public class RouteLookupService {
         String key = String.format(Locale.US, "%.5f,%.5f;%.5f,%.5f", a, b, c, d);
         String body = cache.get(key, k -> osrm.drivingRouteGeometry(a, b, c, d, TIMEOUT));
         if (body == null) {
-            throw new AppException(HttpStatus.BAD_GATEWAY, "ROUTE_UNAVAILABLE", "Route unavailable");
+            return UNAVAILABLE_BODY;
         }
         return body;
     }

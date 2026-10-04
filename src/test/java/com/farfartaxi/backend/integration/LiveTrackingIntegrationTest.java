@@ -314,6 +314,7 @@ class LiveTrackingIntegrationTest extends M1TestSupport {
             pub(token, 200, ip);
         }
         pub(token, 429, ip);
+        assertThat(call("GET", "/api/public/share/" + token, null, null, 429, "CF-Connecting-IP", ip).code()).isEqualTo("RATE_LIMITED");
         pub(token, 200, freshIp()); // another client is unaffected
         clock.advance(Duration.ofMinutes(1)); // next window
         pub(token, 200, ip);
