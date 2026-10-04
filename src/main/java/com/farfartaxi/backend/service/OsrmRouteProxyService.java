@@ -80,6 +80,39 @@ public class OsrmRouteProxyService {
     }
 
     /**
+     * Full-geometry (GeoJSON) route on the same short path as {@link #drivingRoute(double, double, double, double, Duration)}:
+     * no global throttle/lock, gives up after {@code timeout}.
+     * @return raw OSRM JSON body, or null on error / timeout / invalid coordinates
+     */
+    public String drivingRouteGeometry(double fromLat, double fromLon, double toLat, double toLon, Duration timeout) {
+        if (!finiteLatLon(fromLat, fromLon) || !finiteLatLon(toLat, toLon)) {
+            return null;
+        }
+        String path = String.format(Locale.US,
+            "/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson&alternatives=false&steps=false", fromLon, fromLat, toLon, toLat);
+        long t0 = System.nanoTime();
+        String result = quickGet(path, timeout);
+        metrics.route(result == null ? "error" : "ok", System.nanoTime() - t0);
+        return result;
+    }
+
+    private String quickGet(String path, Duration timeout) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout)
+                .header("Accept", "application/json").header("User-Agent", "FarfartaxiBackend/1.0").GET().build();
+            HttpResponse<byte[]> response = quickClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 200 && response.statusCode() < 300 && response.body() != null && response.body().length > 0) {
+                return new String(response.body(), StandardCharsets.UTF_8);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("OSRM quick request failed: {}", e.getClass().getSimpleName());
+        }
+        return null;
+    }
+
+    /**
      * @return raw OSRM JSON body, or null on error / invalid coordinates
      */
     public String drivingRoute(double fromLat, double fromLon, double toLat, double toLon) {

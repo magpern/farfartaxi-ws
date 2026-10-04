@@ -37,19 +37,25 @@ public class TelemetryService {
     private static final Duration RATE_WINDOW = Duration.ofHours(1);
 
     /** Prop value types. */
-    private sealed interface Spec permits IntSpec, StrSpec, EnumSpec {
+    private sealed interface Spec permits IntSpec, PatternSpec, EnumSpec {
     }
 
     private record IntSpec() implements Spec {
     }
 
-    private record StrSpec(int max) implements Spec {
+    /** A short token that must match the whole pattern (otherwise the prop is dropped). */
+    private record PatternSpec(Pattern pattern) implements Spec {
     }
 
     private record EnumSpec(Set<String> values) implements Spec {
     }
 
     private static final Spec INT = new IntSpec();
+    private static final Spec ERROR_TYPE = new EnumSpec(Set.of(
+        "TypeError", "ReferenceError", "RangeError", "SyntaxError", "NetworkError", "ChunkLoadError", "Error", "Other"));
+    private static final Spec ERROR_CODE = new EnumSpec(Set.of("UNHANDLED_ERROR", "UNHANDLED_REJECTION", "RENDER_ERROR"));
+    private static final Spec ERROR_SOURCE = new PatternSpec(Pattern.compile("[A-Za-z0-9_.-]{1,40}"));
+    private static final Spec FINGERPRINT = new PatternSpec(Pattern.compile("[0-9a-f]{16}"));
     private static final Spec KIND = new EnumSpec(Set.of("NOW", "SCHEDULED"));
     private static final Spec SOURCE = new EnumSpec(Set.of("home", "search", "favorite", "recent", "rebook"));
 
@@ -77,7 +83,9 @@ public class TelemetryService {
         "ride_cancelled", RIDE,
         "push_permission", Map.of("state", new EnumSpec(Set.of("granted", "denied", "default"))),
         "push_opened", Map.of("kind", new EnumSpec(PUSH_KINDS)),
-        "frontend_error", Map.of("message", new StrSpec(200), "source", new StrSpec(120), "line", INT));
+        "frontend_error", Map.of("type", ERROR_TYPE, "source", ERROR_SOURCE, "code", ERROR_CODE, "line", INT, "fingerprint", FINGERPRINT));
+    /** Free-text props that are never accepted for an event name: removed before screening and never stored. */
+    private static final Map<String, Set<String>> DROPPED_PROPS = Map.of("frontend_error", Set.of("message"));
 
     private static final Set<String> SENSITIVE_TOKENS = Set.of(
         "lat", "lon", "lng", "latitude", "longitude", "coord", "coords", "coordinate", "coordinates", "name", "street", "position");
@@ -88,7 +96,6 @@ public class TelemetryService {
     private static final Pattern EMAIL = Pattern.compile("[\\w.+-]+@[\\w-]+\\.[\\w.-]+");
     private static final Pattern COORD_PAIR = Pattern.compile("-?\\d{1,3}\\.\\d{4,}\\s*[,;/ ]\\s*-?\\d{1,3}\\.\\d{4,}");
     private static final Pattern DECIMAL_ONLY = Pattern.compile("\\s*-?\\d+\\.\\d{4,}\\s*");
-    private static final Pattern CONTROL = Pattern.compile("[\\p{Cntrl}]");
     private static final Pattern SESSION_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     private final ObjectMapper mapper = new ObjectMapper().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
@@ -97,7 +104,10 @@ public class TelemetryService {
     private final Clock clock;
     private final Map<Long, Window> windows = new ConcurrentHashMap<>();
 
-    public TelemetryService(AppEventRepository repository, AppMetrics metrics, Clock clock) {
+    private final RateLimits rateLimits;
+
+    public TelemetryService(AppEventRepository repository, AppMetrics metrics, Clock clock, RateLimits rateLimits) {
+        this.rateLimits = rateLimits;
         this.repository = repository;
         this.metrics = metrics;
         this.clock = clock;
@@ -112,6 +122,7 @@ public class TelemetryService {
     }
 
     public Result ingest(String body, UserEntity user) {
+        rateLimits.telemetryRequest(user.getId());
         JsonNode root;
         try {
             root = mapper.readTree(body);
@@ -129,22 +140,16 @@ public class TelemetryService {
             ? root.get("sessionId").asText() : null;
         boolean test = user.isTest();
         Instant now = clock.instant();
-        int quota = reserveQuota(user.getId(), events.size(), now);
         int accepted = 0;
-        int seen = 0;
         List<AppEventEntity> toSave = new ArrayList<>();
         for (JsonNode ev : events) {
-            if (seen++ >= quota) {
-                metrics.appEventDropped("rate_limited", test);
-                continue;
-            }
             String name = ev.path("name").isTextual() ? ev.get("name").asText() : null;
             Map<String, Spec> allowed = name == null ? null : ALLOWED.get(name);
             if (allowed == null) {
                 metrics.appEventDropped("unknown_name", test);
                 continue;
             }
-            ObjectNode props = sanitizeProps(ev.get("props"), allowed);
+            ObjectNode props = sanitizeProps(ev.get("props"), allowed, DROPPED_PROPS.getOrDefault(name, Set.of()));
             if (props == null) {
                 metrics.appEventDropped("rejected", test);
                 continue;
@@ -163,11 +168,19 @@ public class TelemetryService {
             e.setClientTs(parseTs(ev.get("ts")));
             e.setCreatedAt(now);
             toSave.add(e);
-            metrics.appEvent(name, test);
-            accepted++;
         }
-        if (!toSave.isEmpty()) {
-            repository.saveAll(toSave);
+        // quota is reserved only for events that passed validation
+        int quota = reserveQuota(user.getId(), toSave.size(), now);
+        for (int i = 0; i < toSave.size(); i++) {
+            if (i < quota) {
+                metrics.appEvent(toSave.get(i).getName(), test);
+                accepted++;
+            } else {
+                metrics.appEventDropped("rate_limited", test);
+            }
+        }
+        if (accepted > 0) {
+            repository.saveAll(toSave.subList(0, accepted));
         }
         return new Result(accepted, events.size() - accepted);
     }
@@ -190,7 +203,7 @@ public class TelemetryService {
     }
 
     /** @return the cleaned props, or null when the event must be rejected (looks like an address/coordinate/contact). */
-    private ObjectNode sanitizeProps(JsonNode raw, Map<String, Spec> allowed) {
+    private ObjectNode sanitizeProps(JsonNode raw, Map<String, Spec> allowed, Set<String> dropped) {
         ObjectNode out = mapper.createObjectNode();
         if (raw == null || raw.isNull() || raw.isMissingNode()) {
             return out;
@@ -201,6 +214,9 @@ public class TelemetryService {
         Map<String, JsonNode> clean = new HashMap<>();
         for (var it = raw.fields(); it.hasNext();) {
             var f = it.next();
+            if (dropped.contains(f.getKey())) {
+                continue;
+            }
             JsonNode value = f.getValue();
             if (value.isTextual()) {
                 // query/fragment never count (and are never stored): only the URL path is checked
@@ -227,13 +243,9 @@ public class TelemetryService {
                         out.put(entry.getKey(), v.asText());
                     }
                 }
-                case StrSpec s -> {
-                    if (v.isTextual()) {
-                        String t = sanitizeString(v.asText(), s.max());
-                        if (looksLikeLocation(com.fasterxml.jackson.databind.node.TextNode.valueOf(t))) {
-                            return null;
-                        }
-                        out.put(entry.getKey(), t);
+                case PatternSpec s -> {
+                    if (v.isTextual() && s.pattern().matcher(v.asText()).matches()) {
+                        out.put(entry.getKey(), v.asText());
                     }
                 }
             }
@@ -264,12 +276,6 @@ public class TelemetryService {
             return COORD_PAIR.matcher(t).find() || EMBEDDED_DECIMAL.matcher(t).find() || DECIMAL_ONLY.matcher(t).matches() || EMAIL.matcher(t).find();
         }
         return false;
-    }
-
-    static String sanitizeString(String s, int max) {
-        String t = URL_QUERY.matcher(s).replaceAll("$1");
-        t = CONTROL.matcher(t).replaceAll(" ").trim();
-        return t.length() > max ? t.substring(0, max) : t;
     }
 
     private static Instant parseTs(JsonNode ts) {

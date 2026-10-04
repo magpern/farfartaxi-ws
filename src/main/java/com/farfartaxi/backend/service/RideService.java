@@ -828,12 +828,8 @@ public class RideService {
     /** Anonymous view for the public share page: 404 unknown, 410 revoked or ended more than 1 h ago. */
     @Transactional
     public PublicShareResponse publicShare(String token) {
-        RideEntity ride = rideRepository.findByShareToken(token)
-            .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Share link not found"));
+        RideEntity ride = activeSharedRide(token);
         Instant now = clock.instant();
-        if (ride.getShareRevokedAt() != null || !isUnexpired(ride, now)) {
-            throw new AppException(HttpStatus.GONE, "Share link expired");
-        }
         UserEntity driver = ride.getAcceptedByDriver();
         return new PublicShareResponse(
             PushArgs.firstName(ride.getPassenger().getFullName()),
@@ -845,6 +841,22 @@ public class RideService {
             !RideResponseFactory.positionVisible(ride) || ride.getLastDriverLat() == null || ride.getLastDriverLon() == null ? null
                 : new ShareDriver(ride.getLastDriverLat(), ride.getLastDriverLon(), ride.getLastLocationAccuracyM(), ride.getLastLocationAt()),
             ride.getEtaMinutes(), ride.getEtaTarget(), RideResponseFactory.isLocationStale(ride, now));
+    }
+
+    private RideEntity activeSharedRide(String token) {
+        RideEntity ride = rideRepository.findByShareToken(token)
+            .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Share link not found"));
+        if (ride.getShareRevokedAt() != null || !isUnexpired(ride, clock.instant())) {
+            throw new AppException(HttpStatus.GONE, "Share link expired");
+        }
+        return ride;
+    }
+
+    /** {fromLat, fromLon, toLat, toLon} of a valid (existing, unrevoked, unexpired) share link's ride. */
+    @Transactional
+    public double[] shareRouteEndpoints(String token) {
+        RideEntity ride = activeSharedRide(token);
+        return new double[] {ride.getFromLat(), ride.getFromLon(), ride.getToLat(), ride.getToLon()};
     }
 
     private static boolean isUnexpired(RideEntity ride, Instant now) {

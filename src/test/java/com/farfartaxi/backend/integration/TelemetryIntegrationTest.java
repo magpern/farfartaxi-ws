@@ -67,12 +67,16 @@ class TelemetryIntegrationTest extends M1TestSupport {
         post(p2, List.of(
             ev("search_result_selected", Map.of("queryLength", 5, "provider", "SL", "kind", "STOP", "rank", "first", "latencyMs", 120, "foo", "bar")),
             ev("push_permission", Map.of("state", "maybe")),
-            ev("frontend_error", Map.of("message", "boom at https://farfartaxi.pernemark.se/app/x?token=SECRET#frag", "source", "app.js", "line", 12))), 200);
+            ev("frontend_error", Map.of("message", "boom at https://farfartaxi.pernemark.se/app/x?token=SECRET#frag", "type", "TypeError",
+                "source", "https://farfartaxi.pernemark.se/app/x?token=SECRET", "code", "RENDER_ERROR", "line", 12,
+                "fingerprint", "0123456789abcdef"))), 200);
         JsonNode sel = om.readTree(rowsOf(p2Id, "search_result_selected").get(0).getProps());
         assertThat(sel.fieldNames()).toIterable().containsExactlyInAnyOrder("queryLength", "provider", "kind", "latencyMs");
         assertThat(rowsOf(p2Id, "push_permission").get(0).getProps()).isNull();
         String err = rowsOf(p2Id, "frontend_error").get(0).getProps();
-        assertThat(err).contains("https://farfartaxi.pernemark.se/app/x").doesNotContain("SECRET").doesNotContain("frag");
+        assertThat(om.readTree(err)).isEqualTo(om.readTree(
+            "{\"type\":\"TypeError\",\"code\":\"RENDER_ERROR\",\"line\":12,\"fingerprint\":\"0123456789abcdef\"}"));
+        assertThat(err).doesNotContain("boom").doesNotContain("SECRET").doesNotContain("farfartaxi.pernemark.se");
     }
 
     @Test
@@ -88,7 +92,7 @@ class TelemetryIntegrationTest extends M1TestSupport {
             ev("search_started", Map.of("userEmail", "a")),
             ev("search_started", Map.of("provider", "59.33291,18.06860")),
             ev("search_started", Map.of("provider", "59.332912")),
-            ev("frontend_error", Map.of("message", "failed for anna@example.com")),
+            ev("frontend_error", Map.of("source", "59.42351")),
             ev("search_started", Map.of("phone", "070")),
             ev("search_started", Map.of("latencyMs", 80, "queryLength", 3.5))), 200); // latencyMs is not "lat"; 3.5 has 1 decimal -> ok (not int: skipped)
         assertThat(r.body().get("accepted").asInt()).isEqualTo(1);
@@ -106,9 +110,9 @@ class TelemetryIntegrationTest extends M1TestSupport {
     void embeddedCoordinatesAreNeverStoredAndEnumsAreEnforced() throws Exception {
         post(p1, List.of(
             ev("frontend_error", Map.of("message", "GET /api/places/reverse?lat=59.42351&lon=17.91234 failed")),
-            ev("frontend_error", Map.of("message", "Invalid LatLng object: (59.42351, NaN)")),
-            ev("frontend_error", Map.of("message", "pos 59.42351")),
-            ev("frontend_error", Map.of("message", "59,42351 17,91234")),
+            ev("frontend_error", Map.of("message", "Invalid LatLng object: (59.42351, NaN)", "source", "LiveRideMap")),
+            ev("frontend_error", Map.of("message", "pos 59.42351 anna@example.com")),
+            ev("frontend_error", Map.of("fingerprint", "NOT-HEX", "source", "a b", "type", "Boom", "code", "x")),
             ev("search_started", Map.of("provider", "Google", "kind", "STOP", "queryLength", 3)),
             ev("ride_cancelled", Map.of("kind", "NOW", "status", "because I said so")),
             ev("push_opened", Map.of("kind", "NOT_A_KIND"))), 200);
@@ -118,7 +122,7 @@ class TelemetryIntegrationTest extends M1TestSupport {
                 assertThat(e.getProps()).doesNotContain("Google").doesNotContain("because").doesNotContain("NOT_A_KIND");
             }
         }
-        assertThat(eventsRepo.findAll()).noneMatch(e -> e.getProps() != null && e.getProps().contains("LatLng"));
+        assertThat(eventsRepo.findAll()).noneMatch(e -> e.getProps() != null && (e.getProps().contains("LatLng") || e.getProps().contains("message")));
     }
 
     @Test
@@ -176,6 +180,43 @@ class TelemetryIntegrationTest extends M1TestSupport {
         assertThat(rowsOf(uid, "push_opened")).hasSize(600);
         clock.advance(Duration.ofMinutes(61));
         assertThat(post(t, batch, 200).body().get("accepted").asInt()).isEqualTo(50);
+    }
+
+    @Test
+    void invalidEventsDoNotConsumeQuotaAndValidOnesAreStillCapped() throws Exception {
+        String t = account("tel-quota@test.local", false);
+        long uid = idOf("tel-quota@test.local");
+        List<Map<String, Object>> invalid = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            invalid.add(i % 2 == 0 ? ev("not_an_event", Map.of()) : ev("search_started", Map.of("lat", 59.3)));
+        }
+        for (int i = 0; i < 12; i++) { // 600 invalid events
+            Resp r = post(t, invalid, 200);
+            assertThat(r.body().get("accepted").asInt()).isZero();
+            assertThat(r.body().get("dropped").asInt()).isEqualTo(50);
+        }
+        List<Map<String, Object>> valid = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            valid.add(ev("push_opened", Map.of()));
+        }
+        // 12 requests used so far; 12 more valid batches fill the 600 quota exactly
+        for (int i = 0; i < 12; i++) {
+            assertThat(post(t, valid, 200).body().get("accepted").asInt()).isEqualTo(50);
+        }
+        assertThat(post(t, valid, 200).body().get("accepted").asInt()).isZero();
+        assertThat(rowsOf(uid, "push_opened")).hasSize(600);
+    }
+
+    @Test
+    void telemetryRequestsArePerUserLimited() throws Exception {
+        String t = account("tel-req@test.local", false);
+        for (int i = 0; i < 120; i++) {
+            post(t, List.of(), 200);
+        }
+        Resp r = post(t, List.of(), 429);
+        assertThat(r.code()).isEqualTo("RATE_LIMITED");
+        clock.advance(Duration.ofMinutes(61));
+        post(t, List.of(), 200);
     }
 
     @Test
