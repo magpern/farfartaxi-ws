@@ -9,8 +9,12 @@ cd "$(dirname "$0")/.."
 GRAFANA_URL="${GRAFANA_URL:-http://192.168.1.222:3030}"
 PW="$(grep -E '^GRAFANA_ADMIN_PASSWORD=' .env | head -1 | cut -d= -f2-)"
 [ -n "$PW" ] || { echo "GRAFANA_ADMIN_PASSWORD missing in .env" >&2; exit 2; }
-# password passed via a curl config on stdin, never on the command line or stdout
-api() { printf 'user = "admin:%s"\n' "$PW" | curl -fsS -K - "$@"; }
+# password passed via a private (0600) curl config file, never on the command line or stdout;
+# stdin stays free for request bodies
+CFG="$(umask 077; mktemp)"
+printf 'user = "admin:%s"\n' "$PW" > "$CFG"
+trap 'rm -f "$CFG"' EXIT
+api() { curl -fsS -K "$CFG" "$@"; }
 
 # runs one query through /api/ds/query; prints the number of frames that really carry data
 count_frames() { # $1 = JSON body
@@ -39,7 +43,7 @@ dash="$(api "$GRAFANA_URL/api/dashboards/uid/farfartaxi")"
 echo "dashboard: found"
 export GRAFANA_URL
 tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+trap 'rm -f "$tmp" "$CFG"' EXIT
 python3 - "$dash" <<'PY' > "$tmp"
 import json,sys
 d=json.loads(sys.argv[1])["dashboard"]
@@ -55,7 +59,7 @@ while IFS= read -r line; do
   body="$(python3 -c '
 import json,sys,os
 p=json.loads(sys.argv[1])
-print(json.dumps({"from":"now-"+os.environ.get("RANGE","1h"),"to":"now","queries":[{"refId":"A","datasource":{"type":"prometheus","uid":"prometheus"},"expr":p["expr"].replace("$world", os.environ.get("WORLD","real")).replace("$__range", os.environ.get("RANGE","1h")),"range":True,"instant":False,"intervalMs":30000,"maxDataPoints":100}]}))' "$line")"
+print(json.dumps({"from":"now-"+os.environ.get("RANGE","1h"),"to":"now","queries":[{"refId":"A","datasource":{"type":"prometheus","uid":"prometheus"},"expr":p["expr"].replace("$world", os.environ.get("WORLD","real")).replace("$__range", os.environ.get("RANGE","1h")).replace("$__rate_interval", "2m"),"range":True,"instant":False,"intervalMs":30000,"maxDataPoints":100}]}))' "$line")"
   n="$(count_frames "$body")"
   if [ "$n" -ge 1 ]; then echo "OK    $title: $n series"
   elif [ "$opt" = "True" ]; then echo "WARN  $title: no data (optional)"
