@@ -53,10 +53,18 @@ public class TelemetryService {
     private static final Spec KIND = new EnumSpec(Set.of("NOW", "SCHEDULED"));
     private static final Spec SOURCE = new EnumSpec(Set.of("home", "search", "favorite", "recent", "rebook"));
 
+    private static final Spec PROVIDER = new EnumSpec(Set.of("SL", "NOMINATIM", "FAVORITE", "RECENT"));
+    private static final Spec SEARCH_KIND = new EnumSpec(Set.of("STOP", "ADDRESS", "POI", "FAVORITE", "RECENT"));
+    private static final Spec CANCEL_STATUS = new EnumSpec(Set.of("by_passenger", "by_driver"));
+    /** The notification kinds PushService sends (the "kind" of a push payload). */
+    static final Set<String> PUSH_KINDS = Set.of(
+        "NEW_RIDE", "NOW_REPUSH", "RIDE_REOFFERED", "RIDE_CHANGED_CONFIRM", "RIDE_EDITED", "RIDE_CANCELLED", "URGENT",
+        "REMINDER_24H", "REMINDER_2H", "DRIVER_REMINDER_30M", "ACCEPTED", "EN_ROUTE", "ARRIVED", "ETA_5MIN", "NO_DRIVER", "MESSAGE");
+
     private static final Map<String, Spec> SEARCH = Map.of(
-        "queryLength", INT, "provider", new StrSpec(20), "kind", new StrSpec(20), "rank", INT, "latencyMs", INT);
+        "queryLength", INT, "provider", PROVIDER, "kind", SEARCH_KIND, "rank", INT, "latencyMs", INT);
     private static final Map<String, Spec> BOOKING = Map.of("kind", KIND, "source", SOURCE);
-    private static final Map<String, Spec> RIDE = Map.of("kind", KIND, "status", new StrSpec(20));
+    private static final Map<String, Spec> RIDE = Map.of("kind", KIND, "status", CANCEL_STATUS);
 
     /** The event name allowlist, each with the allowlist of its props. */
     static final Map<String, Map<String, Spec>> ALLOWED = Map.of(
@@ -68,14 +76,15 @@ public class TelemetryService {
         "ride_accepted", RIDE,
         "ride_cancelled", RIDE,
         "push_permission", Map.of("state", new EnumSpec(Set.of("granted", "denied", "default"))),
-        "push_opened", Map.of("kind", new StrSpec(40)),
+        "push_opened", Map.of("kind", new EnumSpec(PUSH_KINDS)),
         "frontend_error", Map.of("message", new StrSpec(200), "source", new StrSpec(120), "line", INT));
 
     private static final Set<String> SENSITIVE_TOKENS = Set.of(
         "lat", "lon", "lng", "latitude", "longitude", "coord", "coords", "coordinate", "coordinates", "name", "street", "position");
     private static final Pattern SENSITIVE_SUBSTRING = Pattern.compile("address|email|phone|mail|adress");
     private static final Pattern CAMEL_BOUNDARY = Pattern.compile("(?<=[a-z0-9])(?=[A-Z])|[^A-Za-z0-9]+");
-    private static final Pattern URL_QUERY = Pattern.compile("(https?://[^\\s?#\"'<>]*)[?#][^\\s\"'<>]*");
+    private static final Pattern URL_QUERY = Pattern.compile("(/[^\\s?#\"'<>]*)[?#][^\\s\"'<>]*");
+    private static final Pattern EMBEDDED_DECIMAL = Pattern.compile("\\d{1,3}[.,]\\d{4,}");
     private static final Pattern EMAIL = Pattern.compile("[\\w.+-]+@[\\w-]+\\.[\\w.-]+");
     private static final Pattern COORD_PAIR = Pattern.compile("-?\\d{1,3}\\.\\d{4,}\\s*[,;/ ]\\s*-?\\d{1,3}\\.\\d{4,}");
     private static final Pattern DECIMAL_ONLY = Pattern.compile("\\s*-?\\d+\\.\\d{4,}\\s*");
@@ -192,10 +201,15 @@ public class TelemetryService {
         Map<String, JsonNode> clean = new HashMap<>();
         for (var it = raw.fields(); it.hasNext();) {
             var f = it.next();
-            if (sensitiveKey(f.getKey()) || looksLikeLocation(f.getValue())) {
+            JsonNode value = f.getValue();
+            if (value.isTextual()) {
+                // query/fragment never count (and are never stored): only the URL path is checked
+                value = com.fasterxml.jackson.databind.node.TextNode.valueOf(URL_QUERY.matcher(value.asText()).replaceAll("$1"));
+            }
+            if (sensitiveKey(f.getKey()) || looksLikeLocation(value)) {
                 return null;
             }
-            clean.put(f.getKey(), f.getValue());
+            clean.put(f.getKey(), value);
         }
         for (var entry : allowed.entrySet()) {
             JsonNode v = clean.get(entry.getKey());
@@ -247,7 +261,7 @@ public class TelemetryService {
         }
         if (v.isTextual()) {
             String t = v.asText();
-            return COORD_PAIR.matcher(t).find() || DECIMAL_ONLY.matcher(t).matches() || EMAIL.matcher(t).find();
+            return COORD_PAIR.matcher(t).find() || EMBEDDED_DECIMAL.matcher(t).find() || DECIMAL_ONLY.matcher(t).matches() || EMAIL.matcher(t).find();
         }
         return false;
     }

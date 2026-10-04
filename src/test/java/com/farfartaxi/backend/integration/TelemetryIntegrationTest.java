@@ -103,6 +103,25 @@ class TelemetryIntegrationTest extends M1TestSupport {
     }
 
     @Test
+    void embeddedCoordinatesAreNeverStoredAndEnumsAreEnforced() throws Exception {
+        post(p1, List.of(
+            ev("frontend_error", Map.of("message", "GET /api/places/reverse?lat=59.42351&lon=17.91234 failed")),
+            ev("frontend_error", Map.of("message", "Invalid LatLng object: (59.42351, NaN)")),
+            ev("frontend_error", Map.of("message", "pos 59.42351")),
+            ev("frontend_error", Map.of("message", "59,42351 17,91234")),
+            ev("search_started", Map.of("provider", "Google", "kind", "STOP", "queryLength", 3)),
+            ev("ride_cancelled", Map.of("kind", "NOW", "status", "because I said so")),
+            ev("push_opened", Map.of("kind", "NOT_A_KIND"))), 200);
+        for (AppEventEntity e : eventsRepo.findAll()) {
+            if (e.getProps() != null) {
+                assertThat(e.getProps()).doesNotContain("59.4").doesNotContain("59,4").doesNotContain("17.91").doesNotContain("lat=");
+                assertThat(e.getProps()).doesNotContain("Google").doesNotContain("because").doesNotContain("NOT_A_KIND");
+            }
+        }
+        assertThat(eventsRepo.findAll()).noneMatch(e -> e.getProps() != null && e.getProps().contains("LatLng"));
+    }
+
+    @Test
     void unknownNamesAreDroppedAndCountedNot400() throws Exception {
         double before = counter("farfartaxi.app_events.dropped", "reason", "unknown_name", "world", "real");
         Resp r = post(p1, List.of(ev("page_view", Map.of()), ev("DROP TABLE", Map.of()), ev("push_opened", Map.of("kind", "ACCEPTED"))), 200);

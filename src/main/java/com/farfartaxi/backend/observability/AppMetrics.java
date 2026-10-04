@@ -67,37 +67,45 @@ public class AppMetrics {
     }
 
     public void pushSent(boolean ok) {
-        push(ok ? "ok" : "error", "unknown");
+        push(ok ? "ok" : "error", "unknown", "real");
     }
 
-    /** @param outcome ok|error|gone|disabled|rejected; @param kind notification kind (fixed, low-cardinality set) */
-    public void push(String outcome, String kind) {
-        registry.counter("farfartaxi.push", "outcome", outcome, "kind", kind == null ? "unknown" : kind).increment();
+    /** @param outcome ok|error|gone|disabled|rejected; @param kind notification kind (fixed, low-cardinality set); @param test recipient's world */
+    public void push(String outcome, String kind, boolean test) {
+        push(outcome, kind, world(test));
     }
 
-    /** @param provider SL etc.; @param outcome ok|empty|error */
-    public void placesSearch(String provider, String outcome, long nanos) {
-        Timer.builder("farfartaxi.places.search").tag("provider", provider).tag("outcome", outcome)
+    private void push(String outcome, String kind, String world) {
+        registry.counter("farfartaxi.push", "outcome", outcome, "kind", kind == null ? "unknown" : kind, "world", world).increment();
+    }
+
+    /** @param provider SL etc.; @param outcome ok|empty|error; @param test the calling user's world */
+    public void placesSearch(String provider, String outcome, long nanos, boolean test) {
+        Timer.builder("farfartaxi.places.search").tag("provider", provider).tag("outcome", outcome).tag("world", world(test))
             .register(registry).record(nanos, TimeUnit.NANOSECONDS);
     }
 
-    public void placesCache(String provider, boolean hit) {
-        registry.counter("farfartaxi.places.cache", "provider", provider, "result", hit ? "hit" : "miss").increment();
+    public void placesCache(String provider, boolean hit, boolean test) {
+        registry.counter("farfartaxi.places.cache", "provider", provider, "result", hit ? "hit" : "miss", "world", world(test)).increment();
     }
 
-    public void placesNearestStop(String outcome, long nanos) {
-        timer("farfartaxi.places.nearest_stop", outcome, nanos);
+    public void placesNearestStop(String outcome, long nanos, boolean test) {
+        timer("farfartaxi.places.nearest_stop", outcome, nanos, world(test));
     }
 
-    public void placesReverse(String outcome, long nanos) {
-        timer("farfartaxi.places.reverse", outcome, nanos);
+    public void placesReverse(String outcome, long nanos, boolean test) {
+        timer("farfartaxi.places.reverse", outcome, nanos, world(test));
     }
 
     public void route(String outcome, long nanos) {
-        timer("farfartaxi.route", outcome, nanos);
+        timer("farfartaxi.route", outcome, nanos, null);
     }
 
-    private void timer(String name, String outcome, long nanos) {
-        Timer.builder(name).tag("outcome", outcome).register(registry).record(nanos, TimeUnit.NANOSECONDS);
+    private void timer(String name, String outcome, long nanos, String world) {
+        Timer.Builder b = Timer.builder(name).tag("outcome", outcome);
+        if (world != null) {
+            b.tag("world", world);
+        }
+        b.register(registry).record(nanos, TimeUnit.NANOSECONDS);
     }
 }

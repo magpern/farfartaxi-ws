@@ -3,7 +3,7 @@
 Implements roadmap "M8: Observability and ops hardening". *(clarification)* / *(deviation)* mark master decisions.
 
 ## Topology
-- newhomeserver (192.168.1.222, this machine) runs Prometheus + Grafana in `/srv/farfartaxi-observability/` (compose + provisioning from the repo directory `ops/observability/`). Grafana on `192.168.1.222:3030` (LAN only), admin password generated into `/srv/farfartaxi-observability/.env` (chmod 600, never printed). Prometheus internal only (no published port, or bound to 127.0.0.1), retention 30 d.
+- newhomeserver (192.168.1.222, this machine) runs Prometheus + Grafana in `/home/magpern/farfartaxi-observability/` (compose + provisioning from the repo directory `ops/observability/`). Grafana on `192.168.1.222:3030` (LAN only), admin password generated into `/home/magpern/farfartaxi-observability/.env` (chmod 600, never printed). Prometheus runs as uid 1000 (compose `user: "1000:1000"`) so the data directory under the deploy path stays owned by the deploy user; internal only (no published port, or bound to 127.0.0.1), retention 30 d.
 - Gateway Pi: backend management port 8090 published **only on the Pi's LAN address** `192.168.1.151:8090` *(clarification: no firewall changes; instead)* protected by **HTTP basic auth** for `/actuator/prometheus` (user `prometheus`, password from env `MANAGEMENT_PROMETHEUS_PASSWORD`, generated on both hosts' .env; health stays unauthenticated on the management port). If the password env is absent, prometheus endpoint is denied (fail closed).
 - *(deviation)* Grafana reads **Prometheus only**, not Postgres: Postgres was deliberately unpublished in M0A; all dashboard data (funnel, wait times, push) is exported as Micrometer metrics instead of SQL panels. Equivalent outcome, no DB exposure.
 

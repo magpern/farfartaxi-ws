@@ -501,7 +501,7 @@ class PlacesIntegrationTest {
         assertThat(nearestStops.reload()).isFalse();
         call("GET", "/api/places/nearest-stop?lat=59.4520&lon=17.8030", u, null, 200);
         // never loaded -> empty
-        assertThat(new NearestStopService("http://127.0.0.1:9", false, metrics).nearest(59.45, 17.80)).isEmpty();
+        assertThat(new NearestStopService("http://127.0.0.1:9", false, metrics).nearest(59.45, 17.80, false)).isEmpty();
     }
 
     // ---------------------------------------------------------------- reverse
@@ -539,9 +539,9 @@ class PlacesIntegrationTest {
         var failing = new com.farfartaxi.backend.service.NominatimProxyService(
             "http://127.0.0.1:" + NOMINATIM.getAddress().getPort() + "/failing", 0);
         var svc = new com.farfartaxi.backend.places.ReverseGeocodeService(failing, metrics);
-        assertThat(svc.reverse(59.34, 18.06)).isEmpty();
+        assertThat(svc.reverse(59.34, 18.06, false)).isEmpty();
         var down = new com.farfartaxi.backend.service.NominatimProxyService("http://127.0.0.1:9", 0);
-        assertThat(new com.farfartaxi.backend.places.ReverseGeocodeService(down, metrics).reverse(59.34, 18.06)).isEmpty();
+        assertThat(new com.farfartaxi.backend.places.ReverseGeocodeService(down, metrics).reverse(59.34, 18.06, false)).isEmpty();
     }
 
     @Test
@@ -551,19 +551,19 @@ class PlacesIntegrationTest {
             var svc = new NearestStopService("http://127.0.0.1:" + TRANSPORT.getAddress().getPort(), true, metrics);
             SITES.set("not json");
             svc.retryUntilLoaded();
-            assertThat(svc.nearest(59.4520, 17.8030)).isEmpty();
+            assertThat(svc.nearest(59.4520, 17.8030, false)).isEmpty();
             SITES.set("[]"); // empty counts as failed too
             svc.retryUntilLoaded();
-            assertThat(svc.nearest(59.4520, 17.8030)).isEmpty();
+            assertThat(svc.nearest(59.4520, 17.8030, false)).isEmpty();
             SITES.set("[{\"id\":1,\"gid\":777,\"name\":\"Gid stop\",\"lat\":59.4510,\"lon\":17.8030}]");
             svc.retryUntilLoaded();
-            var hit = svc.nearest(59.4520, 17.8030).orElseThrow();
+            var hit = svc.nearest(59.4520, 17.8030, false).orElseThrow();
             assertThat(hit.providerPlaceId()).isEqualTo("777");
             assertThat(hit.area()).isNull();
             // loaded: the retry job no longer reloads
             SITES.set("[{\"id\":2,\"gid\":888,\"name\":\"Other\",\"lat\":59.4510,\"lon\":17.8030}]");
             svc.retryUntilLoaded();
-            assertThat(svc.nearest(59.4520, 17.8030).orElseThrow().providerPlaceId()).isEqualTo("777");
+            assertThat(svc.nearest(59.4520, 17.8030, false).orElseThrow().providerPlaceId()).isEqualTo("777");
         } finally {
             SITES.set(before);
         }

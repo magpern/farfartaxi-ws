@@ -26,6 +26,10 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 
 @Configuration
@@ -36,13 +40,44 @@ public class SecurityConfig {
      * /actuator/prometheus needs HTTP basic as user "prometheus". With no password configured nobody can authenticate
      * (fail closed). Everything else on the management port is denied.
      */
+    /**
+     * Management basic auth only: a high-entropy machine secret, so no bcrypt per scrape/request. Compares SHA-256
+     * digests in constant time ({@link MessageDigest#isEqual}).
+     */
+    static final class Sha256DigestEncoder implements PasswordEncoder {
+        private static byte[] digest(CharSequence raw) {
+            try {
+                return MessageDigest.getInstance("SHA-256").digest(String.valueOf(raw).getBytes(StandardCharsets.UTF_8));
+            } catch (NoSuchAlgorithmException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        @Override
+        public String encode(CharSequence raw) {
+            return HexFormat.of().formatHex(digest(raw));
+        }
+
+        @Override
+        public boolean matches(CharSequence raw, String encoded) {
+            if (raw == null || encoded == null) {
+                return false;
+            }
+            try {
+                return MessageDigest.isEqual(digest(raw), HexFormat.of().parseHex(encoded));
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+        }
+    }
+
     @Bean
     @Order(1)
     public SecurityFilterChain managementSecurityFilterChain(
         HttpSecurity http,
         @Value("${app.management.prometheus-password:}") String prometheusPassword
     ) throws Exception {
-        PasswordEncoder encoder = new BCryptPasswordEncoder();
+        PasswordEncoder encoder = new Sha256DigestEncoder();
         InMemoryUserDetailsManager users = new InMemoryUserDetailsManager();
         if (prometheusPassword != null && !prometheusPassword.isBlank()) {
             users.createUser(User.withUsername("prometheus").password(encoder.encode(prometheusPassword)).roles("PROMETHEUS").build());

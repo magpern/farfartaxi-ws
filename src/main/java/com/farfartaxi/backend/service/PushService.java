@@ -118,7 +118,7 @@ public class PushService {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     void onMessage(PushMessage message) {
         if (sender == null) {
-            metrics.push("disabled", message.kind());
+            metrics.push("disabled", message.kind(), isTestUser(message.userId()));
             return;
         }
         pending.incrementAndGet();
@@ -133,7 +133,7 @@ public class PushService {
         } catch (RejectedExecutionException e) {
             pending.decrementAndGet();
             LOG.warn("Push queue full, dropping {} notification for user {}", message.kind(), message.userId());
-            metrics.push("rejected", message.kind());
+            metrics.push("rejected", message.kind(), isTestUser(message.userId()));
         }
     }
 
@@ -149,6 +149,14 @@ public class PushService {
         return false;
     }
 
+    private boolean isTestUser(Long userId) {
+        try {
+            return userId != null && users.findById(userId).map(UserEntity::isTest).orElse(false);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     List<PushSubscriptionEntity> recipientsFor(Role role, boolean isTest) {
         return subscriptionRepository.findByUser_RoleAndUser_Test(role, isTest);
     }
@@ -160,7 +168,7 @@ public class PushService {
             deliver(m);
         } catch (Exception e) {
             LOG.warn("Push delivery failed for user {} kind {}: {}", m.userId(), m.kind(), e.getClass().getSimpleName());
-            metrics.push("error", m.kind());
+            metrics.push("error", m.kind(), isTestUser(m.userId()));
         }
     }
 
@@ -219,20 +227,20 @@ public class PushService {
             }
             int status = response.getStatusLine().getStatusCode();
             if (status >= 200 && status < 300) {
-                metrics.push("ok", kind);
+                metrics.push("ok", kind, s.getUser().isTest());
             } else if (status == 404 || status == 410) {
                 subscriptionRepository.deleteById(s.getId());
-                metrics.push("gone", kind);
+                metrics.push("gone", kind, s.getUser().isTest());
             } else {
                 LOG.warn("Push service answered {} for user {} kind {}", status, s.getUser().getId(), kind);
-                metrics.push("error", kind);
+                metrics.push("error", kind, s.getUser().isTest());
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            metrics.push("error", kind);
+            metrics.push("error", kind, s.getUser().isTest());
         } catch (Exception e) {
             LOG.warn("Push send failed for user {} kind {}: {}", s.getUser().getId(), kind, e.getClass().getSimpleName());
-            metrics.push("error", kind);
+            metrics.push("error", kind, s.getUser().isTest());
         }
     }
 }

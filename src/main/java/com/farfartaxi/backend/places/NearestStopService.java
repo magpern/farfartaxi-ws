@@ -110,7 +110,7 @@ public class NearestStopService {
         }
     }
 
-    public Optional<NearestStopResponse> nearest(double lat, double lon) {
+    public Optional<NearestStopResponse> nearest(double lat, double lon, boolean test) {
         long t0 = System.nanoTime();
         List<Site> list = sites;
         Site best = null;
@@ -127,7 +127,7 @@ public class NearestStopService {
         Optional<NearestStopResponse> out = best != null && bestM <= MAX_DISTANCE_M
             ? Optional.of(new NearestStopResponse(best.name(), best.area(), best.lat(), best.lon(), (int) Math.round(bestM), best.id()))
             : Optional.empty();
-        metrics.placesNearestStop(list == null ? "unloaded" : out.isPresent() ? "ok" : "empty", System.nanoTime() - t0);
+        metrics.placesNearestStop(list == null ? "unloaded" : out.isPresent() ? "ok" : "empty", System.nanoTime() - t0, test);
         return out;
     }
 }
