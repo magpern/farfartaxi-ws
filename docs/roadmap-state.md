@@ -141,6 +141,7 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - Auth rate limits per client IP (register 20/h, login 300/15 min, google 30/15 min, forgot 20/h) + 10 failed logins per email per 15 min; 429 RATE_LIMITED + Retry-After; limiter cap 100k keys, fails closed for new keys when full (never resets existing counts).
 - Leaflet unmount safety (disposeMap/isMapAlive, no animated programmatic fits).
 - Independent review of the hardening: CLEAN; follow-ups applied.
+- **Power outage (2026-10-04 ~09:13 UTC)** took down both newhomeserver and the gateway Pi. On reboot the Pi's backend container stayed exited and the frontend nginx crash-looped ("backend" not resolvable at startup) -> public 502. Recovered by `docker compose up -d` + frontend restart (~5 min after detection). Fixes in this release: frontend nginx resolves the backend at request time (starts without it); backend waits for the database at startup (Hikari initialization-fail-timeout=-1). Observability stack and all repos/branches survived intact.
 - Accepted/documented risks: CF-Connecting-IP is trusted; a device on the home LAN could reach the frontend port directly and spoof it (LAN-only). Someone knowing a family member's email can block their password login for 15 min (Google sign-in unaffected).
 
 ## Deviations
