@@ -8,7 +8,11 @@ import com.farfartaxi.backend.api.dto.AuthDtos.LoginRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.RegisterRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.SetPasswordRequest;
 import com.farfartaxi.backend.api.dto.AuthDtos.UserView;
+import com.farfartaxi.backend.service.AppException;
 import com.farfartaxi.backend.service.AuthService;
+import com.farfartaxi.backend.service.ClientIp;
+import com.farfartaxi.backend.service.RateLimits;
+import org.springframework.http.HttpStatus;
 import jakarta.validation.Valid;
 import com.farfartaxi.backend.service.AuthService.AuthSession;
 import com.farfartaxi.backend.service.RefreshTokenService;
@@ -33,15 +37,21 @@ public class AuthController {
     private final AuthService authService;
     private final RefreshTokenService refreshTokenService;
     private final boolean cookieSecure;
+    private final RateLimits rateLimits;
+    private final ClientIp clientIp;
 
     public AuthController(
         AuthService authService,
         RefreshTokenService refreshTokenService,
+        RateLimits rateLimits,
+        ClientIp clientIp,
         @Value("${app.auth.refresh-cookie-secure:true}") boolean cookieSecure
     ) {
         this.authService = authService;
         this.refreshTokenService = refreshTokenService;
         this.cookieSecure = cookieSecure;
+        this.rateLimits = rateLimits;
+        this.clientIp = clientIp;
     }
 
     private ResponseCookie cookie(String value, long maxAgeSeconds) {
@@ -87,17 +97,30 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
+        rateLimits.register(clientIp.of(http));
         return withCookie(authService.register(request));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return withCookie(authService.login(request));
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        rateLimits.loginAttempt(clientIp.of(http), request.email());
+        AuthSession session;
+        try {
+            session = authService.login(request);
+        } catch (AppException e) {
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
+                rateLimits.loginFailed(request.email());
+            }
+            throw e;
+        }
+        rateLimits.loginSucceeded(request.email());
+        return withCookie(session);
     }
 
     @PostMapping("/google")
-    public ResponseEntity<AuthResponse> google(@Valid @RequestBody GoogleLoginRequest request) {
+    public ResponseEntity<AuthResponse> google(@Valid @RequestBody GoogleLoginRequest request, HttpServletRequest http) {
+        rateLimits.google(clientIp.of(http));
         return withCookie(authService.loginWithGoogle(request.credential()));
     }
 
@@ -107,7 +130,8 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public void forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+    public void forgotPassword(@Valid @RequestBody ForgotPasswordRequest request, HttpServletRequest http) {
+        rateLimits.forgotPassword(clientIp.of(http));
         authService.forgotPassword(request.email());
     }
 

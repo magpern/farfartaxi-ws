@@ -49,7 +49,8 @@ export async function stubExternal(ctx: BrowserContext, tag: string) {
   })
   await ctx.route('**/api/places/reverse**', (route) => route.fulfill({ json: start }))
   await ctx.route('**/api/places/nearest-stop**', (route) => route.fulfill({ status: 204 }))
-  await ctx.route('**/api/public/route/**', (route) => route.fulfill({ json: ROUTE_STUB }))
+  await ctx.route('**/api/route/driving**', (route) => route.fulfill({ json: ROUTE_STUB }))
+  await ctx.route('**/api/public/share/*/route**', (route) => route.fulfill({ json: ROUTE_STUB }))
   await ctx.route(/^https?:\/\/[^/]*(tile\.openstreetmap|openstreetmap\.org|osm\.org|unpkg\.com)[^/]*\//, (route) => route.abort())
 }
 

@@ -23,6 +23,11 @@ public class ShareRateLimiter {
         this.clock = clock;
     }
 
+    /** @return seconds until the current window ends (Retry-After), at least 1 */
+    public long retryAfterSeconds() {
+        return Math.max(1, 60 - clock.instant().getEpochSecond() % 60);
+    }
+
     /** @return true when the request is allowed */
     public boolean tryAcquire(String ip) {
         long minute = clock.instant().getEpochSecond() / 60;

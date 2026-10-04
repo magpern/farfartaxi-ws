@@ -27,7 +27,11 @@ public class GlobalExceptionHandler {
         if (ex.getDetails() != null) {
             body.putAll(ex.getDetails());
         }
-        return ResponseEntity.status(ex.getStatus()).body(body);
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(ex.getStatus());
+        if (ex instanceof com.farfartaxi.backend.service.RateLimitedException rl) {
+            response.header("Retry-After", Long.toString(rl.getRetryAfterSeconds()));
+        }
+        return response.body(body);
     }
 
     /** Method-security denials (@PreAuthorize) must be 403, not the generic 500 below. */
