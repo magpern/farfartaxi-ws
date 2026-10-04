@@ -144,6 +144,12 @@ Canonical frozen roadmap: [roadmap.md](roadmap.md) (rev 4.1). This file holds no
 - **Power outage (2026-10-04 ~09:13 UTC)** took down both newhomeserver and the gateway Pi. On reboot the Pi's backend container stayed exited and the frontend nginx crash-looped ("backend" not resolvable at startup) -> public 502. Recovered by `docker compose up -d` + frontend restart (~5 min after detection). Fixes in this release: frontend nginx resolves the backend at request time (starts without it); backend waits for the database at startup (Hikari initialization-fail-timeout=-1). Observability stack and all repos/branches survived intact.
 - Accepted/documented risks: CF-Connecting-IP is trusted; a device on the home LAN could reach the frontend port directly and spoof it (LAN-only). Someone knowing a family member's email can block their password login for 15 min (Google sign-in unaffected).
 
+## Hardening release v1.13.1 + CI upgrade (final)
+- Release `v1.13.1`: backend commit `3aacdfb` image `sha256:7a7550e83bbb749148dda53b3450a1ce61ed29c52c2f6d83e0ffe0eda45c3b55`; frontend commit `3c2f1ef` image `sha256:8e194b4b8a70c93918181636551630a4c3467b64103ae3054371cc2377b61622`; Flyway V12 applied; pre-deploy dump taken.
+- Production gates v1.13.1: Playwright 53 passed (+9 by-design skips), smoke PASS incl. telemetry, 0 ERROR lines, real rides unchanged (32). Hardening facts verified on production: `/api/public/route/driving` 404, `/api/route/driving` 401 without login, `/api/public/share/{bogus}/route` 404, old geocode 404, app_events has 0 rows with raw `message`, 0 coordinate-like values; all containers `restart=unless-stopped`; Prometheus target up, Grafana healthy.
+- Power outage recovery: nginx now resolves the backend lazily and the backend waits for the database at startup (see above).
+- GitHub Actions upgraded in both repos (checkout v7, setup-node v7, setup-java v6, upload-artifact v7, docker buildx/login v4, build-push v7); CI green on the new versions, deprecation warnings gone. `release-docker.yml` only runs on release tags, so its first run on the new action versions is the next release.
+
 ## Deviations
 - M6/M7: M7 development started while M6's last production gate waited ~3 h for an external Cloudflare cache TTL; M7 was not merged or deployed until M6's gates passed (single integration stream preserved).
 - M8 (planned): Grafana reads Prometheus only (no Postgres datasource) because the DB port was deliberately closed in M0A; equivalent dashboards via Micrometer metrics.
